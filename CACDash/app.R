@@ -1,5 +1,5 @@
 
-source("global.r")
+source("global.R")
 
 # Define UI for application that draws a histogram
 ui <- dashboardPage(
@@ -73,7 +73,7 @@ ui <- dashboardPage(
                             introBox(
                               selectInput("date",
                                           "Choose a date",
-                                          dates),
+                                          petrol_dates),
                               data.step = 2,
                               data.intro = "Choose your survey date. Try it out",
                               data.position = "right"),
@@ -205,7 +205,52 @@ ui <- dashboardPage(
       ),
       tabItem(
         tabName = "grocery",
-        h1("COMING SOON!")
+        
+        fluidRow(
+          column(
+            width = 4,
+            box(
+              width = NULL,
+              selectInput("grocery_date",
+                          "Choose a date",
+                          grocery_dates),
+              selectizeInput("grocery_products",
+                          "Choose a product",
+                          grocery_products
+                          ),
+              textInput("grocery_product_vol",
+                        "Enter the product volume"),
+              actionButton("grocery_add","Add"),
+              downloadButton("grocery_data_download", "Download")
+            )
+          ),
+          column(
+            width = 8,
+            box(
+              width = NULL,
+              leafletOutput("groceryMapPlot")))
+        ),
+        fluidRow(
+          column(
+            width = 6,
+            box(
+              width = NULL,
+              title = "Store Comparison",
+              tags$div(id="storebills")
+            )
+          ),
+          column(
+            width = 6,
+            tabBox(
+              width = NULL,
+              title = "Product Analysis",
+              tabPanel("Stats",
+                       tags$div(id="groceryProductStats")),
+              tabPanel("Chart",
+                       plotlyOutput("groceryChart"))
+            )
+          )
+        )
       ),
       tabItem(
         tabName = "hardware",
