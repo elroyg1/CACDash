@@ -54,12 +54,26 @@ grocery_dates <- grocery_data$SurveyDate %>%
   unique()
 
 # Get grocery products
-grocery_products <- grocery_data %>%
-  select(ProductDesc, BrandName, Description) %>%
-  dplyr::arrange(ProductDesc) %>%
-  unite(col = Products, ...=1:3, sep = " ") %>%
+grocery_items <- GET("http://cac.gov.jm/dev/SurveyEnquiry/Items.php?Key=e8189538-d0ca-4899-adae-18f454eca9f9") %>%
+  content() %>%
+  filter(SurveyType == 3) %>%
+  unlist() %>%
   unique()
 
 # Get BOJ Data
-bojData <- "CACDash/data/bojData.json" %>%
-  read_json(simplifyVector = F)
+bojData <- "./data/bojData.json" %>%
+  fromJSON(flatten = T) %>%
+  unlist() %>%
+  as.data.frame() %>%
+  na.omit() %>%
+  rownames_to_column() %>%
+  separate(1, 
+           c("Date",
+             "Institution",
+             "Currency", 
+             "TXN"),
+           sep = "\\.") %>%
+  select(Institution, 
+         Currency, 
+         TXN,  
+         "Rate"=5 )

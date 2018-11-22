@@ -216,7 +216,7 @@ ui <- dashboardPage(
                           grocery_dates),
               selectizeInput("grocery_products",
                           "Choose a product",
-                          grocery_products
+                          grocery_items
                           ),
               textInput("grocery_product_vol",
                         "Enter the product volume"),
