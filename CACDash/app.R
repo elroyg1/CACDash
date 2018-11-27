@@ -214,9 +214,10 @@ ui <- dashboardPage(
               selectInput("grocery_date",
                           "Choose a date",
                           grocery_dates),
-              selectizeInput("grocery_products",
+              pickerInput("grocery_products",
                           "Choose a product",
-                          grocery_items
+                          grocery_items$ItemName,
+                          multiple = T
                           ),
               textInput("grocery_product_vol",
                         "Enter the product volume"),
@@ -236,7 +237,10 @@ ui <- dashboardPage(
             box(
               width = NULL,
               title = "Store Comparison",
-              tags$div(id="storebills")
+              lapply(1: length(grocery_items),
+                     function(i){
+                       infoBoxOutput(paste0("item",i))
+                     })
             )
           ),
           column(
@@ -262,7 +266,42 @@ ui <- dashboardPage(
       ),
       tabItem(
         tabName = "forex",
-        h1("COMING SOON!")
+        fluidRow(
+          column(
+            width = 4,
+            box(
+              width = NULL,
+              pickerInput("forex_inst",
+                          "Choose an institution",
+                          bank_institutions,
+                          options = list("live-search" = TRUE
+              )),
+              radioGroupButtons("forex_currencies",
+                                "Choose your currency",
+                                choices = currencies),
+              radioGroupButtons("forex_txn",
+                                "Buy or Sell",
+                                choices = c("buy", 
+                                            "sell")),
+              actionButton("forex_show","Show"),
+              downloadButton("forex_data_download", "Download")
+            )
+          ),
+          column(
+            width = 8,
+            box(
+              width = NULL,
+              leafletOutput("forexMapPlot")))
+        ),
+        fluidRow(
+          column(
+            width = 12,
+            box(
+              width = NULL,
+              infoBoxOutput("forex_output")
+            )
+          )
+        )
       )
       )
       )
@@ -523,6 +562,53 @@ server <- function(input, output, session) {
       },
       contentType = "csv"
     )
+  })
+
+  # Groceries app
+  observeEvent(input$grocery_add,{
+    
+    selected_items <- grocery_items$ItemID[input$grocery_products == grocery_items$ItemName] 
+    
+    #Generate reactive data for mapPlot
+    grocery_prices <- reactive({
+      grocery_prices <- grocery_data %>%
+        filter(SurveyDate == input$grocery_date &
+                 ProductDescID %in% selected_items,
+               !is.na(Price)) %>%
+        group_by(ProductDescID) %>%
+        summarise(Price = mean(Price, na.rm = T)) %>%
+        ungroup()
+      return(grocery_prices)
+    })
+    
+    print(grocery_prices())
+    
+    lapply(1:length(selected_items), function(i){
+      output[[paste0("item",i)]] <- renderInfoBox(
+        infoBox(title = selected_items[i],
+                value = grocery_prices()$Price[grocery_prices()$ProductDescID == selected_items[i]]
+                )
+      )
+    })
+    
+  })
+  
+  # Forex App
+  observeEvent(input$forex_show,{
+    
+    forex_data <- bojData %>%
+      dplyr::filter(str_detect(rowname, input$forex_inst) &
+                      str_detect(rowname, input$forex_currencies) &
+                      str_detect(rowname, input$forex_txn))
+
+    output$forex_output <- renderInfoBox(
+      infoBox(
+        title = "Rate",
+        value = forex_data[1,2],
+        subtitle = paste0(input$forex_txn, " volume ",forex_data[2,2]) 
+      )
+    )
+    
   })
 }
 

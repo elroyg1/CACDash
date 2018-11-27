@@ -46,7 +46,7 @@ XRate_data <- read_csv("./data/XRate_data.csv")
 # Get Grocery Data
 grocerystores <- read_csv("./data/grocerystores.csv")
 
-grocery_data <- read_csv("./data/grocery_data.csv")
+grocery_data <- read_csv("./data/grocery_data.csv") 
 
 # Get Grocery Survey dates  
 grocery_dates <- grocery_data$SurveyDate %>%
@@ -57,23 +57,20 @@ grocery_dates <- grocery_data$SurveyDate %>%
 grocery_items <- GET("http://cac.gov.jm/dev/SurveyEnquiry/Items.php?Key=e8189538-d0ca-4899-adae-18f454eca9f9") %>%
   content() %>%
   filter(SurveyType == 3) %>%
-  unlist() %>%
-  unique()
+  select(ItemName, ItemID) 
 
 # Get BOJ Data
-bojData <- "./data/bojData.json" %>%
-  fromJSON(flatten = T) %>%
+bank_institutions <- read.csv("./data/institutions.csv", 
+                              stringsAsFactors = F) %>%
+  unname() %>%
+  unlist()
+
+currencies <- c("USD", "GBP", "EUR", "CAD")
+
+bojData <- "http://boj.org.jm/autobot/market_summary/read.php" %>%
+  GET() %>%
+  content() %>%
   unlist() %>%
   as.data.frame() %>%
   na.omit() %>%
-  rownames_to_column() %>%
-  separate(1, 
-           c("Date",
-             "Institution",
-             "Currency", 
-             "TXN"),
-           sep = "\\.") %>%
-  select(Institution, 
-         Currency, 
-         TXN,  
-         "Rate"=5 )
+  rownames_to_column()
