@@ -567,26 +567,42 @@ server <- function(input, output, session) {
   # Groceries app
   observeEvent(input$grocery_add,{
     
-    selected_items <- grocery_items$ItemID[input$grocery_products == grocery_items$ItemName] 
+    selected_items <- NULL
+    
+    for (i in 1:length(input$grocery_products) ) {
+      
+      selected_items[i] <- grocery_items$ItemID[input$grocery_products[i] == grocery_items$ItemName]
+    }
     
     #Generate reactive data for mapPlot
     grocery_prices <- reactive({
-      grocery_prices <- grocery_data %>%
-        filter(SurveyDate == input$grocery_date &
-                 ProductDescID %in% selected_items,
-               !is.na(Price)) %>%
-        group_by(ProductDescID) %>%
-        summarise(Price = mean(Price, na.rm = T)) %>%
-        ungroup()
+      
+      grocery_prices <- NULL
+      
+      for (ID in selected_items) {
+        # Get Grocery data
+        grocery_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/GroceryPrices.php",
+                            query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
+                                         ItemID = ID)) %>%
+          content() %>%
+          filter(StartDate == input$grocery_date &
+                   !is.na(Price) & Price != 0) %>%
+          group_by(ItemID) %>%
+          summarise(Price = mean(Price, na.rm = T)) %>%
+          ungroup()
+        
+        grocery_prices <- bind_rows(grocery_data)
+          
+      }
+      
       return(grocery_prices)
     })
     
-    print(grocery_prices())
     
     lapply(1:length(selected_items), function(i){
       output[[paste0("item",i)]] <- renderInfoBox(
-        infoBox(title = selected_items[i],
-                value = grocery_prices()$Price[grocery_prices()$ProductDescID == selected_items[i]]
+        infoBox(title = grocery_items$ItemName[grocery_items$ItemID == selected_items[i]],
+                value = grocery_prices()$Price[grocery_prices()$ItemID == selected_items[i]]
                 )
       )
     })

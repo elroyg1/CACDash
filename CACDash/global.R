@@ -24,7 +24,16 @@ library(leaflet)
 library(plotly)
 
 library(readr)
-petrol_data <- read_csv("./data/petrol_data.csv")
+
+# Get Petrol data
+petrol_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/PetrolPrices.php",
+                   query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9")) %>%
+  content() %>%
+  filter(!is.na(Price),
+         Price > 0,
+         Price < 400) %>%
+  mutate(LocLongitude = as.numeric(LocLongitude),
+         LocLatitude = as.numeric(LocLatitude))
 
 petrol_dates <- petrol_data$StartDate %>%
   unlist() %>%
@@ -46,15 +55,17 @@ XRate_data <- read_csv("./data/XRate_data.csv")
 # Get Grocery Data
 grocerystores <- read_csv("./data/grocerystores.csv")
 
-grocery_data <- read_csv("./data/grocery_data.csv") 
-
 # Get Grocery Survey dates  
-grocery_dates <- grocery_data$SurveyDate %>%
+grocery_dates <- read_csv("./data/grocery_dates.csv") %>%
+  select(2) %>%
+  unique() %>%
   unlist() %>%
-  unique()
+  unname() %>%
+  as.Date(origin = "1970-01-01")
 
 # Get grocery products
-grocery_items <- GET("http://cac.gov.jm/dev/SurveyEnquiry/Items.php?Key=e8189538-d0ca-4899-adae-18f454eca9f9") %>%
+grocery_items <- GET("http://cac.gov.jm/dev/SurveyEnquiry/Items.php", 
+                     query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9")) %>%
   content() %>%
   filter(SurveyType == 3) %>%
   select(ItemName, ItemID) 
