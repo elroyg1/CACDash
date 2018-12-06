@@ -217,32 +217,31 @@ ui <- dashboardPage(
               pickerInput("grocery_products",
                           "Choose a product",
                           grocery_items$ItemName,
+                          options = list(size = 10,
+                                         "live-search" = TRUE,
+                                         "actions-box" = TRUE,
+                                         `selected-text-format` = "count > 3"),
                           multiple = T
                           ),
               textInput("grocery_product_vol",
                         "Enter the product volume"),
               actionButton("grocery_add","Add"),
-              downloadButton("grocery_data_download", "Download")
+              downloadButton("grocery_data_download", "Download"),
+              leafletOutput("groceryMapPlot")
             )
           ),
           column(
             width = 8,
             box(
               width = NULL,
-              leafletOutput("groceryMapPlot")))
+              height = NULL,
+              collapsible = TRUE,
+              title = "Store Comparison",
+              uiOutput("items")
+            )
+            )
         ),
         fluidRow(
-          column(
-            width = 6,
-            box(
-              width = NULL,
-              title = "Store Comparison",
-              lapply(1: length(grocery_items),
-                     function(i){
-                       infoBoxOutput(paste0("item",i))
-                     })
-            )
-          ),
           column(
             width = 6,
             tabBox(
@@ -256,6 +255,7 @@ ui <- dashboardPage(
           )
         )
       ),
+      
       tabItem(
         tabName = "hardware",
         h1("COMING SOON!")
@@ -325,7 +325,7 @@ server <- function(input, output, session) {
             events = list("oncomplete"=I('alert("We hope you find this app helpful. And remember: KNOWLEDGE IS POWER.")')))
   })
   
-  #Prices app
+  # Petrol Section
   observeEvent(input$view_Petrol_Prices,{
     
     #Generate reactive data for mapPlot
@@ -564,7 +564,7 @@ server <- function(input, output, session) {
     )
   })
 
-  # Groceries app
+  # Groceries Section
   observeEvent(input$grocery_add,{
     
     selected_items <- NULL
@@ -591,25 +591,28 @@ server <- function(input, output, session) {
           summarise(Price = mean(Price, na.rm = T)) %>%
           ungroup()
         
-        grocery_prices <- bind_rows(grocery_data)
+        grocery_prices <- bind_rows(grocery_prices, grocery_data)
           
       }
       
       return(grocery_prices)
     })
     
-    
-    lapply(1:length(selected_items), function(i){
-      output[[paste0("item",i)]] <- renderInfoBox(
+    output$items <- renderUI({
+      
+     lapply(1:length(selected_items), function(i){
+        
         infoBox(title = grocery_items$ItemName[grocery_items$ItemID == selected_items[i]],
-                value = grocery_prices()$Price[grocery_prices()$ItemID == selected_items[i]]
+                value = round(grocery_prices()$Price[grocery_prices()$ItemID == selected_items[i]], 2)
                 )
-      )
+      
+    })
+      
     })
     
   })
   
-  # Forex App
+  # Forex Section
   observeEvent(input$forex_show,{
     
     forex_data <- bojData %>%
