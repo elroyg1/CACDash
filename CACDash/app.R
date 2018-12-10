@@ -223,11 +223,8 @@ ui <- dashboardPage(
                                          `selected-text-format` = "count > 3"),
                           multiple = T
                           ),
-              textInput("grocery_product_vol",
-                        "Enter the product volume"),
-              actionButton("grocery_add","Add"),
-              downloadButton("grocery_data_download", "Download"),
-              leafletOutput("groceryMapPlot")
+              actionButton("grocery_add","Select"),
+              downloadButton("grocery_data_download", "Download")
             )
           ),
           column(
@@ -236,10 +233,18 @@ ui <- dashboardPage(
               width = NULL,
               height = NULL,
               collapsible = TRUE,
-              title = "Store Comparison",
-              uiOutput("items")
+              title = "Enter product volumes",
+              uiOutput("items"),
+              actionButton("grocery_items_vol", "Enter volumes")
             )
             )
+        ),
+        fluidRow(
+          box(
+            title = "Choose stores",
+            width = NULL,
+            withSpinner(leafletOutput("groceryMapPlot"))  
+          )
         ),
         fluidRow(
           column(
@@ -574,39 +579,86 @@ server <- function(input, output, session) {
       selected_items[i] <- grocery_items$ItemID[input$grocery_products[i] == grocery_items$ItemName]
     }
     
-    #Generate reactive data for mapPlot
-    grocery_prices <- reactive({
-      
-      grocery_prices <- NULL
-      
-      for (ID in selected_items) {
-        # Get Grocery data
-        grocery_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/GroceryPrices.php",
-                            query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
-                                         ItemID = ID)) %>%
-          content() %>%
-          filter(StartDate == input$grocery_date &
-                   !is.na(Price) & Price != 0) %>%
-          group_by(ItemID) %>%
-          summarise(Price = mean(Price, na.rm = T)) %>%
-          ungroup()
-        
-        grocery_prices <- bind_rows(grocery_prices, grocery_data)
-          
-      }
-      
-      return(grocery_prices)
-    })
-    
     output$items <- renderUI({
       
      lapply(1:length(selected_items), function(i){
         
-        infoBox(title = grocery_items$ItemName[grocery_items$ItemID == selected_items[i]],
-                value = round(grocery_prices()$Price[grocery_prices()$ItemID == selected_items[i]], 2)
-                )
-      
+       box(
+         textInput(
+           inputId = paste0(grocery_items$ItemName[grocery_items$ItemID == selected_items[i]]),
+           label = grocery_items$ItemName[grocery_items$ItemID == selected_items[i]]
+         )  
+       )
+       
     })
+      
+    })    
+    
+    observeEvent(input$grocery_items_vol,{
+      
+      #Generate reactive data for mapPlot
+        grocery_prices <- reactive({
+          
+          grocery_prices <- NULL
+          
+          for (ID in selected_items) {
+            # Get Grocery data
+            grocery_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/GroceryPrices.php",
+                                query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
+                                             ItemID = ID)) %>%
+              content() %>%
+              filter(StartDate == input$grocery_date &
+                       !is.na(Price) & Price != 0) %>%
+              group_by(ItemID) %>%
+              summarise(Price = mean(Price, na.rm = T)) %>%
+              ungroup()
+            
+            grocery_prices <- bind_rows(grocery_prices, grocery_data)
+            
+          }
+          
+          return(grocery_prices)
+        })
+
+     # Zoom in on user location if given
+      observe({
+        if(!is.null(input$lat)){
+          mapPlot <- leafletProxy("mapPlot")
+          dist <- 0.1
+          lat <- input$lat
+          lng <- input$long
+          mapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
+        }
+      })      
+        
+      #Map Creation
+      output$groceryMapPlot <- renderLeaflet({
+        # set colours for legend
+        pal <- colorBin(
+          palette = c("#00FF00", "#FFFF00", "#FF0000"),
+          domain = grocery_prices()$Price,
+          bins = 5,
+          pretty = T
+        )
+        
+        #draw map
+        leaflet(width = 400) %>%
+          setView(lng = -77.29751,
+                  lat = 18.10958,
+                  zoom = 9) %>%
+          addProviderTiles(providers$OpenStreetMap.Mapnik) 
+      })
+      
+      #Identifies clicked store for comparison
+      observeEvent(input$mapPlot_marker_click, {
+        
+        # remember to set layer id in leaflet
+        clickedMarker<-input$mapPlot_marker_click
+        
+        
+        
+        
+      })
       
     })
     

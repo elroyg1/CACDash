@@ -2,6 +2,7 @@
 library(shiny)
 library(shinydashboard)
 library(shinyWidgets)
+library(shinycssloaders)
 library(shinyBS)
 library(htmltools)
 library(rintrojs)
