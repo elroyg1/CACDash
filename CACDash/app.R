@@ -595,13 +595,16 @@ server <- function(input, output, session) {
     })    
     
     observeEvent(input$grocery_items_vol,{
-      
+     
       #Generate reactive data for mapPlot
         grocery_prices <- reactive({
           
           grocery_prices <- NULL
           
           for (ID in selected_items) {
+            
+            volume <- as.numeric(input[[paste0(grocery_items$ItemName[grocery_items$ItemID == ID])]])
+            
             # Get Grocery data
             grocery_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/GroceryPrices.php",
                                 query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
@@ -609,13 +612,15 @@ server <- function(input, output, session) {
               content() %>%
               filter(StartDate == input$grocery_date &
                        !is.na(Price) & Price != 0) %>%
-              group_by(ItemID) %>%
-              summarise(Price = mean(Price, na.rm = T)) %>%
-              ungroup()
+              group_by(StartDate, MerchantID, MerchantName, MerchantTown, LocLongitude, LocLatitude) %>%
+              dplyr::mutate(itemTot = Price * volume,
+                            Tot = sum(itemTot, na.rm = T),
+                            grandTot = Tot + (.165 * Tot))
             
             grocery_prices <- bind_rows(grocery_prices, grocery_data)
             
-          }
+          
+            }
           
           return(grocery_prices)
         })
@@ -636,7 +641,7 @@ server <- function(input, output, session) {
         # set colours for legend
         pal <- colorBin(
           palette = c("#00FF00", "#FFFF00", "#FF0000"),
-          domain = grocery_prices()$Price,
+          domain = grocery_prices()$grandTot,
           bins = 5,
           pretty = T
         )
@@ -646,7 +651,25 @@ server <- function(input, output, session) {
           setView(lng = -77.29751,
                   lat = 18.10958,
                   zoom = 9) %>%
-          addProviderTiles(providers$OpenStreetMap.Mapnik) 
+          addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
+          addCircleMarkers(lng = as.numeric(grocery_prices()$LocLongitude),
+                           lat = as.numeric(grocery_prices()$LocLatitude),
+                           layerId = grocery_prices()$MerchantID,
+                           stroke = T,
+                           fillOpacity = 0.8,
+                           fillColor = pal(grocery_prices()$grandTot),
+                           popup = htmlEscape(paste("You can get your basket for about $",
+                                                    as.character(grocery_prices()$grandTot),
+                                                    " from ",
+                                                    grocery_prices()$MerchantName,
+                                                    grocery_prices()$MerchantTown,
+                                                    ", on ",
+                                                    grocery_prices()$StartDate))
+          )%>%
+          addLegend("bottomleft",
+                    pal = pal,
+                    values = grocery_prices()$grandTot,
+                    title = "Total Estimated Cost (Tax incl.) (Ja$)") 
       })
       
       #Identifies clicked store for comparison

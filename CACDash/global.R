@@ -62,7 +62,7 @@ grocery_dates <- read_csv("./data/grocery_dates.csv") %>%
   unique() %>%
   unlist() %>%
   unname() %>%
-  as.Date(origin = "1970-01-01")
+  as.Date(origin = "1970-01-01") 
 
 # Get grocery products
 grocery_items <- GET("http://cac.gov.jm/dev/SurveyEnquiry/Items.php", 
