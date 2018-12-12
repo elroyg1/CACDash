@@ -211,9 +211,6 @@ ui <- dashboardPage(
             width = 4,
             box(
               width = NULL,
-              selectInput("grocery_date",
-                          "Choose a date",
-                          grocery_dates),
               pickerInput("grocery_products",
                           "Choose a product",
                           grocery_items$ItemName,
@@ -243,21 +240,21 @@ ui <- dashboardPage(
           box(
             title = "Choose stores",
             width = NULL,
-            withSpinner(leafletOutput("groceryMapPlot"))  
+            withSpinner(leafletOutput("groceryMapPlot")),
+            uiOutput("grocMapDates")  
           )
         ),
         fluidRow(
-          column(
-            width = 6,
-            tabBox(
+          tabBox(
               width = NULL,
               title = "Product Analysis",
               tabPanel("Stats",
                        tags$div(id="groceryProductStats")),
+              tabPanel("Table",
+                       dataTableOutput("grocery_store_comp")),
               tabPanel("Chart",
                        plotlyOutput("groceryChart"))
             )
-          )
         )
       ),
       
@@ -586,7 +583,8 @@ server <- function(input, output, session) {
        box(
          textInput(
            inputId = paste0(grocery_items$ItemName[grocery_items$ItemID == selected_items[i]]),
-           label = grocery_items$ItemName[grocery_items$ItemID == selected_items[i]]
+           label = grocery_items$ItemName[grocery_items$ItemID == selected_items[i]],
+           value = "1"
          )  
        )
        
@@ -610,12 +608,12 @@ server <- function(input, output, session) {
                                 query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
                                              ItemID = ID)) %>%
               content() %>%
-              filter(StartDate == input$grocery_date &
-                       !is.na(Price) & Price != 0) %>%
+              filter(!is.na(Price) & Price != 0) %>%
               group_by(StartDate, MerchantID, MerchantName, MerchantTown, LocLongitude, LocLatitude) %>%
               dplyr::mutate(itemTot = Price * volume,
                             Tot = sum(itemTot, na.rm = T),
-                            grandTot = Tot + (.165 * Tot))
+                            grandTot = Tot + (.165 * Tot)) %>%
+              ungroup()
             
             grocery_prices <- bind_rows(grocery_prices, grocery_data)
             
@@ -624,64 +622,90 @@ server <- function(input, output, session) {
           
           return(grocery_prices)
         })
-
-     # Zoom in on user location if given
-      observe({
-        if(!is.null(input$lat)){
-          mapPlot <- leafletProxy("mapPlot")
-          dist <- 0.1
-          lat <- input$lat
-          lng <- input$long
-          mapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
-        }
-      })      
         
-      #Map Creation
-      output$groceryMapPlot <- renderLeaflet({
-        # set colours for legend
-        pal <- colorBin(
-          palette = c("#00FF00", "#FFFF00", "#FF0000"),
-          domain = grocery_prices()$grandTot,
-          bins = 5,
-          pretty = T
-        )
+        output$grocMapDates <- renderUI({
+          dropdownButton(
+            selectInput("grocDate",
+                        "",
+                        unique(unlist(grocery_prices()$StartDate))),
+            actionButton("grocstores", "Show stores"),
+            status = "info",
+            up = TRUE,
+            icon = icon("calendar"),
+            tooltip = tooltipOptions(title = "Click to choose survey date.")
+          )
+        })
         
-        #draw map
-        leaflet(width = 400) %>%
-          setView(lng = -77.29751,
-                  lat = 18.10958,
-                  zoom = 9) %>%
-          addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
-          addCircleMarkers(lng = as.numeric(grocery_prices()$LocLongitude),
-                           lat = as.numeric(grocery_prices()$LocLatitude),
-                           layerId = grocery_prices()$MerchantID,
-                           stroke = T,
-                           fillOpacity = 0.8,
-                           fillColor = pal(grocery_prices()$grandTot),
-                           popup = htmlEscape(paste("You can get your basket for about $",
-                                                    as.character(grocery_prices()$grandTot),
-                                                    " from ",
-                                                    grocery_prices()$MerchantName,
-                                                    grocery_prices()$MerchantTown,
-                                                    ", on ",
-                                                    grocery_prices()$StartDate))
-          )%>%
-          addLegend("bottomleft",
-                    pal = pal,
-                    values = grocery_prices()$grandTot,
-                    title = "Total Estimated Cost (Tax incl.) (Ja$)") 
-      })
-      
-      #Identifies clicked store for comparison
-      observeEvent(input$mapPlot_marker_click, {
-        
-        # remember to set layer id in leaflet
-        clickedMarker<-input$mapPlot_marker_click
-        
-        
-        
-        
-      })
+        observeEvent(input$grocstores, {
+          
+          grocery_map_prices <- grocery_prices() %>%
+            dplyr::filter(StartDate == input$grocDate)
+          
+          #Table Tab output
+          output$grocery_store_comp <- renderDataTable({
+            grocery_map_prices %>%
+              select(MerchantName, MerchantTown, Parish, ItemName, Price) %>%
+              group_by(MerchantTown) %>%
+              formattable() %>%
+              as.datatable()
+          })
+          
+          #Map Creation
+          output$groceryMapPlot <- renderLeaflet({
+            # set colours for legend
+            pal <- colorBin(
+              palette = c("#00FF00", "#FFFF00", "#FF0000"),
+              domain = grocery_map_prices$grandTot,
+              bins = 5,
+              pretty = T
+            )
+            
+            #draw map
+            leaflet(width = 400) %>%
+              setView(lng = -77.29751,
+                      lat = 18.10958,
+                      zoom = 9) %>%
+              addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
+              addCircleMarkers(lng = as.numeric(grocery_map_prices$LocLongitude),
+                               lat = as.numeric(grocery_map_prices$LocLatitude),
+                               layerId = grocery_map_prices$MerchantID,
+                               stroke = T,
+                               fillOpacity = 0.8,
+                               fillColor = pal(grocery_map_prices$grandTot),
+                               popup = htmlEscape(paste("You can get your basket for about $",
+                                                        as.character(grocery_map_prices$grandTot),
+                                                        " from ",
+                                                        grocery_map_prices$MerchantName,
+                                                        grocery_map_prices$MerchantTown,
+                                                        ", on ",
+                                                        grocery_map_prices$StartDate))
+              )%>%
+              addLegend("bottomleft",
+                        pal = pal,
+                        values = grocery_map_prices$grandTot,
+                        title = "Total Estimated Cost (Tax incl.) (Ja$)") 
+          })
+          
+          # Zoom in on user location if given
+          observe({
+            if(!is.null(input$lat)){
+              mapPlot <- leafletProxy("mapPlot")
+              dist <- 0.1
+              lat <- input$lat
+              lng <- input$long
+              mapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
+            }
+          }) 
+          
+          #Identifies clicked store for comparison
+          observeEvent(input$mapPlot_marker_click, {
+            
+            # remember to set layer id in leaflet
+            clickedMarker<-input$mapPlot_marker_click
+            
+          })
+          
+        }) 
       
     })
     
