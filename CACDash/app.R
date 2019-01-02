@@ -309,7 +309,7 @@ ui <- dashboardPage(
       )
   )
 
-# Define server logic required to draw a histogram
+# Define server logic required 
 server <- function(input, output, session) {
   
   session$allowReconnect(TRUE)
@@ -569,6 +569,7 @@ server <- function(input, output, session) {
   # Groceries Section
   observeEvent(input$grocery_add,{
     
+    # creates a list of the items the user selected
     selected_items <- NULL
     
     for (i in 1:length(input$grocery_products) ) {
@@ -599,14 +600,14 @@ server <- function(input, output, session) {
           
           grocery_prices <- NULL
           
-          for (ID in selected_items) {
+          for (i in selected_items) {
             
-            volume <- as.numeric(input[[paste0(grocery_items$ItemName[grocery_items$ItemID == ID])]])
+            volume <- as.numeric(input[[paste0(grocery_items$ItemName[grocery_items$ItemID == i])]])
             
             # Get Grocery data
             grocery_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/GroceryPrices.php",
                                 query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
-                                             ItemID = ID)) %>%
+                                             ItemID = i)) %>%
               content() %>%
               filter(!is.na(Price) & Price != 0) %>%
               group_by(StartDate, MerchantID, MerchantName, MerchantTown, LocLongitude, LocLatitude) %>%
@@ -617,7 +618,6 @@ server <- function(input, output, session) {
             
             grocery_prices <- bind_rows(grocery_prices, grocery_data)
             
-          
             }
           
           return(grocery_prices)
@@ -689,19 +689,19 @@ server <- function(input, output, session) {
           # Zoom in on user location if given
           observe({
             if(!is.null(input$lat)){
-              mapPlot <- leafletProxy("mapPlot")
+              groceryMapPlot <- leafletProxy("groceryMapPlot")
               dist <- 0.1
               lat <- input$lat
               lng <- input$long
-              mapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
+              groceryMapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
             }
           }) 
           
           #Identifies clicked store for comparison
-          observeEvent(input$mapPlot_marker_click, {
+          observeEvent(input$groceryMapPlot_marker_click, {
             
             # remember to set layer id in leaflet
-            clickedMarker<-input$mapPlot_marker_click
+            clickedMarker<-input$groceryMapPlot_marker_click
             
           })
           
