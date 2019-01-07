@@ -249,7 +249,7 @@ ui <- dashboardPage(
               width = NULL,
               title = "Product Analysis",
               tabPanel("Stats",
-                       tags$div(id="groceryProductStats")),
+                       uiOutput("groceryStats")),
               tabPanel("Table",
                        dataTableOutput("grocery_store_comp")),
               tabPanel("Chart",
@@ -556,8 +556,16 @@ server <- function(input, output, session) {
       as.datatable()
   })
   
-
-  
+  ## Download Petrol Data
+  output$downloadPetrolData<- downloadHandler(
+    filename = function(){
+      paste0("CACPetrolData_", map_data()$StartDate,".csv")
+      },
+    content = function(file) {
+      write.csv(map_data(),file,row.names=F)
+    },
+    contentType = "csv"
+  )
 
   # Groceries Section
   
@@ -627,11 +635,42 @@ server <- function(input, output, session) {
     return(grocery_prices)
   })
   
+  ## List stats for selected items
+  output$groceryStats <-  renderUI({
+    
+    statsData <-  grocery_prices() %>%
+      group_by(ItemID, ItemName) %>%
+      summarise(maxPrice = max(Price, na.rm = T),
+                minPrice = min(Price, na.rm = T),
+                meanPrice = mean(Price, na.rm = T))
+    
+    lapply(1:length(selected_items()), function(i){
+      
+      if (length(selected_items()) != 0){
+        
+        box(
+          infoBox(
+            title = paste0("national max $", as.character(round(statsData$maxPrice[statsData$ItemID == selected_items()[i]],2))),
+            value = paste0("national avg $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
+            subtitle = paste0("national min $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
+            width = NULL
+          ),
+          title = statsData$ItemName[statsData$ItemID == selected_items()[i]],
+          width = NULL
+        )
+      }
+      else{
+        renderText({"Please choose some items"})
+      }
+    })
+    
+  })
+  
   ## Table Tab output
   output$grocery_store_comp <- renderDataTable({
     grocery_prices() %>%
-      select(StartDate, MerchantName, MerchantTown, Parish, ItemName, Price) %>%
-      group_by(MerchantTown) %>%
+      select(StartDate, MerchantName, ItemName, Price) %>%
+      spread(key= ItemName, value = Price)%>%
       formattable() %>%
       as.datatable()
   })
