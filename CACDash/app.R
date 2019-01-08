@@ -549,11 +549,15 @@ server <- function(input, output, session) {
   
   ## Table Tab output
   output$table <- renderDataTable({
-    map_data() %>%
-      select(MerchantName, MerchantTown, Parish, Price) %>%
-      group_by(MerchantTown) %>%
-      formattable() %>%
-      as.datatable()
+    
+    petrolDatatable <- map_data() %>%
+      select(MerchantName, MerchantTown, Parish, Price)
+    
+    datatable(petrolDatatable,
+              options = list(
+                dom = "lftp")
+              )
+      
   })
   
   ## Download Petrol Data
@@ -650,13 +654,13 @@ server <- function(input, output, session) {
         
         box(
           infoBox(
-            title = paste0("national max $", as.character(round(statsData$maxPrice[statsData$ItemID == selected_items()[i]],2))),
-            value = paste0("national avg $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
-            subtitle = paste0("national min $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
+            title = paste0("National Max $", as.character(round(statsData$maxPrice[statsData$ItemID == selected_items()[i]],2))),
+            value = paste0("National AVG $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
+            subtitle = paste0("National Min $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
             width = NULL
           ),
           title = statsData$ItemName[statsData$ItemID == selected_items()[i]],
-          width = NULL
+          width = 4
         )
       }
       else{
@@ -668,11 +672,22 @@ server <- function(input, output, session) {
   
   ## Table Tab output
   output$grocery_store_comp <- renderDataTable({
-    grocery_prices() %>%
-      select(StartDate, MerchantName, ItemName, Price) %>%
-      spread(key= ItemName, value = Price)%>%
-      formattable() %>%
-      as.datatable()
+    
+    groceryDatatable <- grocery_prices() %>%
+      select(MerchantName, ItemName, Price) %>%
+      group_by_at(vars(-Price)) %>%
+      mutate(row_id = 1:n()) %>%
+      ungroup() %>%
+      spread(key= ItemName, value = Price) %>%
+      select(-row_id) 
+    
+    datatable(groceryDatatable,
+              extensions = list("FixedColumns"),
+              options = list(
+                dom = "lftp",
+                scrollX = TRUE,
+                fixedColumns = list(leftColumns = 2))
+              )
   })
   
   ## Map Creation
@@ -721,6 +736,17 @@ server <- function(input, output, session) {
       groceryMapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
     }
   })
+  
+  ## Download Grocery Data
+  output$grocery_data_download <- downloadHandler(
+    filename = function(){
+      paste0("CACGroceryData_", grocery_prices()$StartDate[1],".csv")
+    },
+    content = function(file) {
+      write.csv(grocery_prices(),file,row.names=F)
+    },
+    contentType = "csv"
+  )
 
   # Forex Section
   observeEvent(input$forex_show,{

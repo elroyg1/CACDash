@@ -19,7 +19,6 @@ library(lubridate)
 library(forecast)
 library(tseries)
 
-library(formattable)
 library(DT)
 library(leaflet)
 library(plotly)
@@ -55,14 +54,6 @@ XRate_data <- read_csv("./data/XRate_data.csv")
 
 # Get Grocery Data
 grocerystores <- read_csv("./data/grocerystores.csv")
-
-# Get Grocery Survey dates  
-grocery_dates <- read_csv("./data/grocery_dates.csv") %>%
-  select(2) %>%
-  unique() %>%
-  unlist() %>%
-  unname() %>%
-  as.Date(origin = "1970-01-01") 
 
 # Get grocery products
 grocery_items <- GET("http://cac.gov.jm/dev/SurveyEnquiry/Items.php", 
