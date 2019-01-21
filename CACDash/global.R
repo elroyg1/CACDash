@@ -35,9 +35,19 @@ petrol_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/PetrolPrices.php",
   mutate(LocLongitude = as.numeric(LocLongitude),
          LocLatitude = as.numeric(LocLatitude))
 
-petrol_dates <- petrol_data$StartDate %>%
+petrol_dates <- GET("http://cac.gov.jm/api/surveys/read.php", 
+                    query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
+                                 SurveyType = 4)) %>%
+  content() %>%
   unlist() %>%
-  unique()
+  enframe() %>%
+  separate(name, into = c(paste0("x", 1:2))) %>%
+  group_by_at(vars(-value)) %>%
+  mutate(row_id=1:n()) %>%
+  ungroup() %>%
+  spread(x2, value) %>%
+  select(startdate, enddate) %>%
+  arrange(desc(startdate)) 
 
 ## Get EIA Data
 usgcReg <- read_csv("./data/usgcReg.csv")

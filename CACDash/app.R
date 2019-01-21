@@ -73,17 +73,14 @@ ui <- dashboardPage(
                             introBox(
                               selectInput("date",
                                           "Choose a date",
-                                          petrol_dates),
+                                          unique(unlist(petrol_dates$startdate))),
                               data.step = 2,
                               data.intro = "Choose your survey date. Try it out",
                               data.position = "right"),
                             introBox(radioButtons(
                               inputId = "fuel",
                               label = "Select the fuel type",
-                              choices = c("87" = "E-10 GASOLENE - 87 OCTANE NONE 1 L",
-                                          "90" = "E-10 GASOLENE - 90 OCTANE NONE 1 L",
-                                          "Diesel" = "AUTO DIESEL NONE 1 L",
-                                          "ULSD" = "ULTRA LOW SULPHUR DIESEL(ULSD) NONE 1 L")
+                              choices = c(unique(unlist(GET_petrol_items$itemname)))
                             ),
                             data.step = 3,
                             data.intro = "Select your fuel type here. Make your choice."),
@@ -331,12 +328,26 @@ server <- function(input, output, session) {
   
   ## Subset Petrol data based on user selection
   map_data <- eventReactive(input$view_Petrol_Prices,{
-    map_data <- petrol_data %>%
-      filter(year(StartDate) == year(input$date) &
-               month(StartDate) == month(input$date),
-             ItemName == input$fuel,
-             Price > 0)
+    
+    map_data <- GET("http://cac.gov.jm/api/productprices/read.php", 
+                    query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
+                                 SurveyType = 4,
+                                 StartDate = input$date,
+                                 EndDate = as.character(as.Date(input$date) + 1),
+                                 ItemID = GET_petrol_items$itemid[GET_petrol_items$itemname == input$fuel])) %>%
+      content() %>%
+      unlist() %>%
+      enframe() %>%
+      separate(name, into = c(paste0("x", 1:2))) %>%
+      group_by_at(vars(-value)) %>%
+      mutate(row_id=1:n()) %>%
+      ungroup() %>%
+      spread(x2, value) %>%
+      select(startdate, loclongitude, loclatitude, outletid,
+             merchantname, merchanttown, itemname,  price)
+    
     return(map_data)
+    
   })
   
   ## Map Creation
@@ -344,7 +355,7 @@ server <- function(input, output, session) {
     # set colours for legend
     pal <- colorBin(
       palette = c("#00FF00", "#FFFF00", "#FF0000"),
-      domain = map_data()$Price,
+      domain = as.numeric(map_data()$price),
       bins = 5,
       pretty = T
     )
@@ -355,25 +366,25 @@ server <- function(input, output, session) {
               lat = 18.10958,
               zoom = 9) %>%
       addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
-      addCircleMarkers(lng = as.numeric(map_data()$LocLongitude),
-                       lat = as.numeric(map_data()$LocLatitude),
-                       layerId = map_data()$MerchantID,
+      addCircleMarkers(lng = as.numeric(map_data()$loclongitude),
+                       lat = as.numeric(map_data()$loclatitude),
+                       layerId = map_data()$outletid,
                        stroke =T,
                        fillOpacity = 0.8,
-                       fillColor = pal(map_data()$Price),
-                       popup = htmlEscape(paste(map_data()$MerchantName,
-                                                map_data()$MerchantTown,
+                       fillColor = pal(as.numeric(map_data()$price)),
+                       popup = htmlEscape(paste(map_data()$merchantname,
+                                                map_data()$merchanttown,
                                                 " sold ",
-                                                map_data()$ItemName,
+                                                map_data()$itemname,
                                                 " for $",
-                                                as.character(map_data()$Price),
+                                                as.character(as.numeric(map_data()$price)),
                                                 "/L",
                                                 ", on ",
-                                                map_data()$StartDate))
+                                                map_data()$startdate))
       )%>%
       addLegend("bottomleft",
                 pal = pal,
-                values = map_data()$Price,
+                values = as.numeric(map_data()$price),
                 title = "Observed Price (Ja$/L)")
   })
   
@@ -624,10 +635,10 @@ server <- function(input, output, session) {
                           query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
                                        ItemID = ID)) %>%
         content() %>%
-        filter(!is.na(Price) & Price != 0)   
-      
+        filter(!is.na(Price) & Price != 0)
+
       grocery_prices <- bind_rows(grocery_prices, grocery_data) %>%
-        filter(StartDate == first(StartDate)) %>%
+        filter(StartDate == max(StartDate)) %>%
         group_by(MerchantID) %>%
         dplyr::mutate(itemTot = Price * volume) %>%
         dplyr::mutate(Tot = sum(itemTot, na.rm = T)) %>%
@@ -635,7 +646,7 @@ server <- function(input, output, session) {
         ungroup()
     
     }
-    
+
     return(grocery_prices)
   })
   
