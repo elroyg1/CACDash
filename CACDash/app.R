@@ -73,7 +73,7 @@ ui <- dashboardPage(
                             introBox(
                               selectInput("date",
                                           "Choose a date",
-                                          unique(unlist(petrol_dates$startdate))),
+                                          petrol_dates$startdate),
                               data.step = 2,
                               data.intro = "Choose your survey date. Try it out",
                               data.position = "right"),
@@ -208,9 +208,12 @@ ui <- dashboardPage(
             width = 4,
             box(
               width = NULL,
+              selectInput("grocdate",
+                          "Choose a date",
+                          GET_grocery_dates$startdate),
               pickerInput("grocery_products",
                           "Choose a product",
-                          grocery_items$ItemName,
+                          grocery_items$itemname,
                           options = list(size = 10,
                                          "live-search" = TRUE,
                                          "actions-box" = TRUE,
@@ -329,7 +332,7 @@ server <- function(input, output, session) {
   ## Subset Petrol data based on user selection
   map_data <- eventReactive(input$view_Petrol_Prices,{
     
-    map_data <- GET("http://cac.gov.jm/api/productprices/read.php", 
+    map_data <- GET("http://cac.gov.jm/api/productprices/read.php",
                     query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
                                  SurveyType = 4,
                                  StartDate = input$date,
@@ -343,8 +346,43 @@ server <- function(input, output, session) {
       mutate(row_id=1:n()) %>%
       ungroup() %>%
       spread(x2, value) %>%
-      select(startdate, loclongitude, loclatitude, outletid,
-             merchantname, merchanttown, itemname,  price)
+      select(itemid, outletid, price) %>%
+      inner_join(GET_outlet, "outletid") %>%
+      mutate(price = as.numeric(price),
+             loclongitude = as.numeric(loclongitude),
+             loclatitude = as.numeric(loclatitude)) %>%
+      filter(price > 0)
+    
+    return(map_data)
+    
+  })
+  
+  petrol_data <- eventReactive(input$view_Petrol_Prices,{
+    
+    map_data <- GET("http://cac.gov.jm/api/productprices/read.php", 
+                    query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
+                                 SurveyType = 4,
+                                 ItemID = GET_petrol_items$itemid[GET_petrol_items$itemname == input$fuel],
+                                 StartDate = as.Date(input$date) %m-% years(10),
+                                 EndDate = as.Date(input$date) + 1,
+                                 Page = 1,
+                                 PageSize = 4000)) %>%
+      content() %>%
+      unlist() %>%
+      enframe() %>%
+      separate(name, into = c(paste0("x", 1:2))) %>%
+      group_by_at(vars(-value)) %>%
+      mutate(row_id=1:n()) %>%
+      ungroup() %>%
+      spread(x2, value) %>%
+      select(startdate, itemid, itemname, outletid, price) %>%
+      inner_join(GET_outlet, "outletid") %>%
+      group_by(startdate) %>%
+      mutate(price = as.numeric(price),
+             natlMean = mean(price, na.rm = T),
+             natlMin = min(price, na.rm = T),
+             natlMax = max(price, na.rm = T)) %>%
+      ungroup() 
     
     return(map_data)
     
@@ -372,15 +410,15 @@ server <- function(input, output, session) {
                        stroke =T,
                        fillOpacity = 0.8,
                        fillColor = pal(as.numeric(map_data()$price)),
-                       popup = htmlEscape(paste(map_data()$merchantname,
-                                                map_data()$merchanttown,
+                       popup = htmlEscape(paste(map_data()$name,
+                                                map_data()$town,
                                                 " sold ",
-                                                map_data()$itemname,
+                                                input$fuel,
                                                 " for $",
                                                 as.character(as.numeric(map_data()$price)),
                                                 "/L",
                                                 ", on ",
-                                                map_data()$startdate))
+                                                input$date))
       )%>%
       addLegend("bottomleft",
                 pal = pal,
@@ -401,11 +439,11 @@ server <- function(input, output, session) {
 
   output$WTI <- renderInfoBox({
     
-    wtiDPB <- as.numeric(wti$Price[wti$Date == first(map_data()$StartDate)]) / 158.987 * as.numeric(as.character(XRate_data$`USD Sell`[XRate_data$Date == first(map_data()$StartDate)]))
+    wtiDPB <- as.numeric(wti$Price[wti$Date == first(input$date)]) / 158.987 * as.numeric(as.character(XRate_data$`USD Sell`[XRate_data$Date == first(input$date)]))
     
     infoBox(
       title = "WTI (crude oil)",
-      subtitle = paste0("(US$",as.numeric(wti$Price[wti$Date == first(map_data()$StartDate)]), "/bbl)"),
+      subtitle = paste0("(US$",as.numeric(wti$Price[wti$Date == first(input$date)]), "/bbl)"),
       href = "https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm",
       value =  round(wtiDPB, 2),
       icon = icon("usd")
@@ -415,16 +453,16 @@ server <- function(input, output, session) {
   
   output$USGC <- renderInfoBox({
     
-    usgcDPG <- ifelse(map_data()$ItemName[1] %in% c("E-10 GASOLENE - 87 OCTANE NONE 1 L",
+    usgcDPG <- ifelse(input$fuel %in% c("E-10 GASOLENE - 87 OCTANE NONE 1 L",
                                         "E-10 GASOLENE - 90 OCTANE NONE 1 L",
                                         "AUTO DIESEL NONE 1 L"),
-                      as.numeric(usgcReg$Price[usgcReg$Date == first(map_data()$StartDate)]),
-                      as.numeric(usgcULSD$Price[usgcULSD$Date == first(map_data()$StartDate)]))
+                      as.numeric(usgcReg$Price[usgcReg$Date == first(input$date)]),
+                      as.numeric(usgcULSD$Price[usgcULSD$Date == first(input$date)]))
     
     infoBox(
       title = "USGC",
       subtitle = paste0("(US$",usgcDPG,"/gal)"),
-      value = round(usgcDPG / 3.785 *  as.numeric(as.character(XRate_data$`USD Sell`[XRate_data$Date == first(map_data()$StartDate)])),2),
+      value = round(usgcDPG / 3.785 *  as.numeric(as.character(XRate_data$`USD Sell`[XRate_data$Date == first(input$date)])),2),
       href = "https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm",
       icon = icon("usd")
     )
@@ -432,17 +470,17 @@ server <- function(input, output, session) {
   
   output$petrojam <- renderInfoBox({
     
-    petrEXP <- ifelse(map_data()$ItemName[1] == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
-                      petrojam_data$`Gasolene  87`[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                     week(petrojam_data$Date) == week(first(map_data()$StartDate))-1],
-                      ifelse(map_data()$ItemName[1] == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
-                             petrojam_data$`Gasolene 90`[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                           week(petrojam_data$Date) == week(first(map_data()$StartDate))-1],
-                             ifelse(map_data()$ItemName[1] == "AUTO DIESEL NONE 1 L",
-                                    petrojam_data$`Auto Diesel`[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                                  week(petrojam_data$Date) == week(first(map_data()$StartDate))-1],
-                                    petrojam_data$ULSD[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                         week(petrojam_data$Date) == week(first(map_data()$StartDate))-1]
+    petrEXP <- ifelse(input$fuel == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
+                      petrojam_data$`Gasolene  87`[year(petrojam_data$Date)==year(first(input$date)) &
+                                                     week(petrojam_data$Date) == week(first(input$date))-1],
+                      ifelse(input$fuel == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
+                             petrojam_data$`Gasolene 90`[year(petrojam_data$Date)==year(first(input$date)) &
+                                                           week(petrojam_data$Date) == week(first(input$date))-1],
+                             ifelse(input$fuel == "AUTO DIESEL NONE 1 L",
+                                    petrojam_data$`Auto Diesel`[year(petrojam_data$Date)==year(first(input$date)) &
+                                                                  week(petrojam_data$Date) == week(first(input$date))-1],
+                                    petrojam_data$ULSD[year(petrojam_data$Date)==year(first(input$date)) &
+                                                         week(petrojam_data$Date) == week(first(input$date))-1]
                              )
                       )
     ) 
@@ -464,50 +502,40 @@ server <- function(input, output, session) {
     # Chart analysis
     output$chart <- renderPlotly({
       
-      petrol_data %>%
-        filter(StartDate <= first(map_data()$StartDate),
-               ItemName == map_data()$ItemName[1],
-               Price > 20,
-               Price < 200) %>%
-        group_by(StartDate) %>%
-        mutate(`National Average` = mean(Price, na.rm = T),
-               `National Max` = max(Price, na.rm=T),
-               `National Min` = min(Price, na.rm = T)) %>%
-        ungroup() %>%
-        filter(MerchantID == clickedMarker$id) %>%
-        plot_ly(x = ~StartDate) %>%
-        add_lines(y = ~`National Average`, 
-                  name = "National Average") %>%
-        add_lines(y = ~`National Max`, 
-                  name = "National Max") %>%
-        add_lines(y = ~`National Min`, 
+      petrol_data() %>%
+        filter(outletid == clickedMarker$id) %>%
+        plot_ly(x = ~as.Date(startdate)) %>%
+        add_lines(y = ~natlMean,
+                  name = "National Mean") %>%
+        add_lines(y = ~natlMin,
                   name = "National Min") %>%
-        add_trace(y = ~Price,
+        add_lines(y = ~natlMax,
+                  name = "National Max") %>%
+        add_trace(y = ~price,
                   type = "scatter",
                   mode = "markers",
-                  color = ~Parish,
-                  name = ~MerchantName,
-                  text = ~paste(MerchantName,
-                                MerchantTown,
-                                "$",Price, "/l")) %>%
-        layout(yaxis = list(title = "Price (Ja$/L)"),
-               xaxis = list(title = "Date",
-                            rangeslider = list(
-                              type = "date"
-                            )
-               )
+                  name = ~name,
+                  text = ~paste(name,
+                                town,
+                                "$",
+                                price, 
+                                "/l")) %>%
+        layout(title = ~name,
+               yaxis = list(title = "Price (Ja$/L)"),
+               xaxis = list(title = "Date"),
+               showlegend = FALSE
         )
     })
     
     # Forecast Analysis
     output$forecast <- renderPlot({
       
-      forecastPetrolData <- petrol_data%>%
-        filter(Price !=0 & 
-                 MerchantID == clickedMarker$id & 
-                 ItemName == map_data()$ItemName[1])
+      forecastPetrolData <- petrol_data()%>%
+        filter(price !=0 & 
+                 outletid == clickedMarker$id & 
+                 itemname == input$fuel)
       
-      price_ts = ts(forecastPetrolData[,c("Price")])
+      price_ts = ts(forecastPetrolData[,c("price")])
       
       forecastPetrolData$clean_price = tsclean(price_ts)
       
@@ -527,23 +555,23 @@ server <- function(input, output, session) {
       
       autoplot(seas_fcast) + 
         labs(title = paste(clickedMarker$id, "forecasted ",
-                           map_data()$ItemName[1], " price"),
+                           input$fuel, " price"),
              y = "J$/L")
     })
     
     output$markup <- renderInfoBox({
       
-      markedup <- ifelse(map_data()$ItemName[1] == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
-                         map_data()$Price[map_data()$MerchantID == clickedMarker$id] - petrojam_data$`Gasolene  87`[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                                                                                      week(petrojam_data$Date) == week(first(map_data()$StartDate))-1],
-                         ifelse(map_data()$ItemName[1] == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
-                                map_data()$Price[map_data()$MerchantID == clickedMarker$id] - petrojam_data$`Gasolene 90`[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                                                                                            week(petrojam_data$Date) == week(first(map_data()$StartDate))-1],
-                                ifelse(map_data()$ItemName[1] == "AUTO DIESEL NONE 1 L",
-                                       map_data()$Price[map_data()$MerchantID == clickedMarker$id] - petrojam_data$`Auto Diesel`[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                                                                                                   week(petrojam_data$Date) == week(first(map_data()$StartDate))-1],
-                                       map_data()$Price[map_data()$MerchantID == clickedMarker$id] - petrojam_data$ULSD[year(petrojam_data$Date)==year(first(map_data()$StartDate)) &
-                                                                                                                          week(petrojam_data$Date) == week(first(map_data()$StartDate))-1]
+      markedup <- ifelse(input$fuel == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
+                         as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$`Gasolene  87`[year(petrojam_data$Date)==year(input$date) &
+                                                                                                                      week(petrojam_data$Date) == week(input$date)-1],
+                         ifelse(input$fuel == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
+                                as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$`Gasolene 90`[year(petrojam_data$Date)==year(input$date) &
+                                                                                                                            week(petrojam_data$Date) == week(input$date)-1],
+                                ifelse(input$fuel == "AUTO DIESEL NONE 1 L",
+                                       as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$`Auto Diesel`[year(petrojam_data$Date)==year(input$date) &
+                                                                                                                                   week(petrojam_data$Date) == week(input$date)-1],
+                                       as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$ULSD[year(petrojam_data$Date)==year(input$date) &
+                                                                                                                          week(petrojam_data$Date) == week(input$date)-1]
                                 )
                          )
       ) 
@@ -562,7 +590,7 @@ server <- function(input, output, session) {
   output$table <- renderDataTable({
     
     petrolDatatable <- map_data() %>%
-      select(MerchantName, MerchantTown, Parish, Price)
+      select(name, town, parish, price)
     
     datatable(petrolDatatable,
               options = list(
@@ -593,7 +621,7 @@ server <- function(input, output, session) {
     
     for (i in 1:length(input$grocery_products) ) {
       
-      selected_items[i] <- grocery_items$ItemID[input$grocery_products[i] == grocery_items$ItemName]
+      selected_items[i] <- as.numeric(grocery_items$itemid[input$grocery_products[i] == grocery_items$itemname])
     }
       
       return(selected_items)
@@ -608,8 +636,8 @@ server <- function(input, output, session) {
       if (length(selected_items()) != 0){
         box(
           textInput(
-            inputId = paste0(grocery_items$ItemName[grocery_items$ItemID == selected_items()[i]]),
-            label = grocery_items$ItemName[grocery_items$ItemID == selected_items()[i]],
+            inputId = paste0(grocery_items$itemname[grocery_items$itemid == selected_items()[i]]),
+            label = grocery_items$itemname[grocery_items$itemid == selected_items()[i]],
             value = "1"
           )  
         )
@@ -624,40 +652,36 @@ server <- function(input, output, session) {
   ## Create data frame of grocery products, prices and totals based on user selections
   grocery_prices <- eventReactive(input$grocery_items_vol,{
     
-    grocery_prices <- NULL
+    grocery_prices <- GET("http://cac.gov.jm/api/productprices/read.php", 
+                          query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
+                                       SurveyType = 3,
+                                       StartDate = input$grocdate,
+                                       EndDate =as.character(as.Date(input$grocdate) + 1),
+                                       ItemID = toString(selected_items()))) %>%
+      content() %>%
+      unlist() %>%
+      enframe() %>%
+      separate(name, into = c(paste0("x", 1:2))) %>%
+      group_by_at(vars(-value)) %>%
+      mutate(row_id=1:n()) %>%
+      ungroup() %>%
+      spread(x2, value) %>%
+      select(startdate, itemid, itemname, outletid, price) %>%
+      inner_join(GET_outlet, "outletid")  %>%
+      filter(price != "0", !is.na(price))
     
-    for (ID in selected_items()) {
-      
-      volume <- as.numeric(input[[paste0(grocery_items$ItemName[grocery_items$ItemID == ID])]])
-      
-      # Get Grocery data
-      grocery_data <- GET("http://cac.gov.jm/dev/SurveyEnquiry/GroceryPrices.php",
-                          query = list(Key="e8189538-d0ca-4899-adae-18f454eca9f9",
-                                       ItemID = ID)) %>%
-        content() %>%
-        filter(!is.na(Price) & Price != 0)
-
-      grocery_prices <- bind_rows(grocery_prices, grocery_data) %>%
-        filter(StartDate == max(StartDate)) %>%
-        group_by(MerchantID) %>%
-        dplyr::mutate(itemTot = Price * volume) %>%
-        dplyr::mutate(Tot = sum(itemTot, na.rm = T)) %>%
-        dplyr::mutate(grandTot = Tot + (.165 * Tot)) %>%
-        ungroup()
-    
-    }
-
     return(grocery_prices)
+
   })
   
   ## List stats for selected items
   output$groceryStats <-  renderUI({
     
     statsData <-  grocery_prices() %>%
-      group_by(ItemID, ItemName) %>%
-      summarise(maxPrice = max(Price, na.rm = T),
-                minPrice = min(Price, na.rm = T),
-                meanPrice = mean(Price, na.rm = T))
+      group_by(itemid, itemname) %>%
+      summarise(maxPrice = max(as.numeric(price), na.rm = T),
+                minPrice = min(as.numeric(price), na.rm = T),
+                meanPrice = mean(as.numeric(price), na.rm = T))
     
     lapply(1:length(selected_items()), function(i){
       
@@ -665,12 +689,12 @@ server <- function(input, output, session) {
         
         box(
           infoBox(
-            title = paste0("National Max $", as.character(round(statsData$maxPrice[statsData$ItemID == selected_items()[i]],2))),
-            value = paste0("National AVG $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
-            subtitle = paste0("National Min $", as.character(round(statsData$meanPrice[statsData$ItemID == selected_items()[i]],2))),
+            title = paste0("National Max $", as.character(round(statsData$maxPrice[statsData$itemid == selected_items()[i]],2))),
+            value = paste0("National AVG $", as.character(round(statsData$meanPrice[statsData$itemid == selected_items()[i]],2))),
+            subtitle = paste0("National Min $", as.character(round(statsData$meanPrice[statsData$itemid == selected_items()[i]],2))),
             width = NULL
           ),
-          title = statsData$ItemName[statsData$ItemID == selected_items()[i]],
+          title = statsData$itemname[statsData$itemid == selected_items()[i]],
           width = 4
         )
       }
@@ -685,11 +709,11 @@ server <- function(input, output, session) {
   output$grocery_store_comp <- renderDataTable({
     
     groceryDatatable <- grocery_prices() %>%
-      select(MerchantName, ItemName, Price) %>%
-      group_by_at(vars(-Price)) %>%
+      select(name, itemname, price) %>%
+      group_by_at(vars(-price)) %>%
       mutate(row_id = 1:n()) %>%
       ungroup() %>%
-      spread(key= ItemName, value = Price) %>%
+      spread(key= itemname, value = price) %>%
       select(-row_id) 
     
     datatable(groceryDatatable,
@@ -706,7 +730,7 @@ server <- function(input, output, session) {
     # set colours for legend
     pal <- colorBin(
       palette = c("#00FF00", "#FFFF00", "#FF0000"),
-      domain = grocery_prices()$grandTot,
+      domain = as.numeric(grocery_prices()$price),
       bins = 5,
       pretty = T
     )
@@ -717,24 +741,24 @@ server <- function(input, output, session) {
               lat = 18.10958,
               zoom = 9) %>%
       addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
-      addCircleMarkers(lng = as.numeric(grocery_prices()$LocLongitude),
-                       lat = as.numeric(grocery_prices()$LocLatitude),
-                       layerId = grocery_prices()$MerchantID,
+      addCircleMarkers(lng = as.numeric(grocery_prices()$loclongitude),
+                       lat = as.numeric(grocery_prices()$loclatitude),
+                       layerId = grocery_prices()$outletid,
                        stroke = T,
                        fillOpacity = 0.8,
-                       fillColor = pal(grocery_prices()$grandTot),
+                       fillColor = pal(as.numeric(grocery_prices()$price)),
                        popup = htmlEscape(paste("You can get your basket for about $",
-                                                as.character(grocery_prices()$grandTot),
+                                                as.character(grocery_prices()$price),
                                                 " from ",
-                                                grocery_prices()$MerchantName,
-                                                grocery_prices()$MerchantTown,
+                                                grocery_prices()$merchantname,
+                                                grocery_prices()$merchanttown,
                                                 ", on ",
-                                                grocery_prices()$StartDate))
+                                                grocery_prices()$startdate))
       ) %>%
       addLegend("bottomleft",
                 pal = pal,
-                values = grocery_prices()$grandTot,
-                title = "Total Estimated Cost (Tax incl.) (Ja$)") 
+                values = as.numeric(grocery_prices()$price),
+                title = "Total Estimated Cost (Tax incl.) (Ja$)")
   })
   
   ## Zoom in on user location if given
