@@ -10,11 +10,9 @@ library(rintrojs)
 library(tidyverse)
 
 library(httr)
-library(XML)
 library(jsonlite)
-
-library(EIAdata)
 library(lubridate)
+library(rvest)
 
 library(forecast)
 library(tseries)
@@ -66,24 +64,57 @@ GET_outlet <- GET("http://cac.gov.jm/api/outlets/read.php",
   ungroup() %>%
   spread(x2, value) %>%
   filter(status == "Active") %>%
-  select(outletid, name, town, parish, 
+  select(surveytype, outletid, name, town, parish, 
          loclatitude, loclongitude)
 
-## Get EIA Data
-usgcReg <- read_csv("./data/usgcReg.csv")
-
-usgcULSD <- read_csv("./data/usgcULSD.csv")
-
-wti <- read_csv("./data/wti.csv")
-
 # Get Petrojam Data
-petrojam_data<-read_csv("./data/petrojam_data.csv")
+get_petrojam_data <- function(selecteddate) {
+  
+  #Get year of date
+  sYear <- year(selecteddate)
+  
+  #Initialize empty dataframe
+  petrojamdata <- NULL
+  
+  #Execute loop
+  for (i in c(0,1,2)) {
+    
+    petrolHTMLTable <- paste0("http://www.petrojam.com/price-index?field_price_date_value%5Bvalue%5D%5Byear%5D=",
+                              sYear,
+                              "&page=",
+                              i) %>%
+      read_html() %>%
+      html_table() 
+    
+    if(length(petrolHTMLTable) != 0) {
+      
+      petrolTable <- petrolHTMLTable[[1]] %>%
+        select(1:4,10) %>%
+        mutate(Date = mdy(Date))
+      
+      petrojamdata <- bind_rows(petrojamdata, petrolTable)
+      
+    } else {
+      return(petrojamdata)
+    }
+    
+    
+  }
+  
+  return(petrojamdata)
+}
 
 # Get USD exchange rate
-XRate_data <- read_csv("./data/XRate_data.csv")
-
-# Get Grocery Data
-grocerystores <- read_csv("./data/grocerystores.csv")
+get_usd_rate <- function(selecteddate) {
+  
+  XRate_data = paste("http://www.boj.org.jm/foreign_exchange/searchfx.php?iUSD=1&rate=1&strFromDate=", selecteddate,"&strToDate=",selecteddate,"&Enter=") %>% 
+    XML::readHTMLTable(as.data.frame=T, which=4) %>%
+    rename("Sell" = 3) %>%
+    summarise(Sell = as.numeric(as.character(Sell[!is.na(Sell)])))
+  
+  return(XRate_data$Sell[1])
+  
+}
 
 # Get grocery products
 GET_grocery_dates <- GET("http://cac.gov.jm/api/surveys/read.php", 

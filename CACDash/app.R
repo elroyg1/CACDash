@@ -58,7 +58,8 @@ ui <- dashboardPage(
           '2018 By Consumer Affairs Commission. '
         )
         ),
-      tabItem(
+     
+       tabItem(
         tabName = "petrol",
         
         fluidRow(
@@ -200,7 +201,8 @@ ui <- dashboardPage(
         )
       )
       ),
-      tabItem(
+     
+       tabItem(
         tabName = "grocery",
         
         fluidRow(
@@ -388,14 +390,22 @@ server <- function(input, output, session) {
     
   })
   
+  petrojam_data <-eventReactive(input$view_Petrol_Prices,{
+    
+    get_petrojam_data(input$date)
+    
+  })  
+  
   ## Map Creation
   output$mapPlot <- renderLeaflet({
     # set colours for legend
+    values <- as.numeric(map_data()$price)
+    
     pal <- colorBin(
       palette = c("#00FF00", "#FFFF00", "#FF0000"),
-      domain = as.numeric(map_data()$price),
+      domain = values,
       bins = 5,
-      pretty = T
+      pretty = FALSE
     )
     
     #draw map
@@ -422,7 +432,7 @@ server <- function(input, output, session) {
       )%>%
       addLegend("bottomleft",
                 pal = pal,
-                values = as.numeric(map_data()$price),
+                values = values,
                 title = "Observed Price (Ja$/L)")
   })
   
@@ -436,65 +446,100 @@ server <- function(input, output, session) {
       mapPlot %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
     }
   })
-
-  output$WTI <- renderInfoBox({
+  
+  ## Petrol Stats
+  observeEvent(input$view_Petrol_Prices,{
     
-    wtiDPB <- as.numeric(wti$Price[wti$Date == first(input$date)]) / 158.987 * as.numeric(as.character(XRate_data$`USD Sell`[XRate_data$Date == first(input$date)]))
+    output$WTI <- renderInfoBox({
+      
+      usdxrate = get_usd_rate(input$date)
+      
+      wti <- GET("http://api.eia.gov/series/",
+                 query = list(
+                   series_id = "PET.RWTC.D",
+                   api_key = "9292085e1004f26d04458213e09c3051",
+                   start = format(as.Date(input$date,format = "%Y-%m-%d"),"%Y%m%d"),
+                   end = format(as.Date(input$date,format = "%Y-%m-%d"),"%Y%m%d")
+                 )) %>%
+        content() %>%
+        unlist() %>%
+        enframe() %>%
+        filter(name == "series.data2")
+      
+      wtiDPB <- as.numeric(wti$value) / 158.987 * usdxrate
+      
+      
+      infoBox(
+        title = "WTI (crude oil)",
+        subtitle = paste0("(US$", wti$value, "/bbl)"),
+        href = "https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm",
+        value =  round(wtiDPB, 2),
+        icon = icon("usd")
+      )
+      
+    })
     
-    infoBox(
-      title = "WTI (crude oil)",
-      subtitle = paste0("(US$",as.numeric(wti$Price[wti$Date == first(input$date)]), "/bbl)"),
-      href = "https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm",
-      value =  round(wtiDPB, 2),
-      icon = icon("usd")
-    )
+    output$USGC <- renderInfoBox({
+      
+      usgc <- GET("http://api.eia.gov/series/",
+                  query = list(
+                    series_id = ifelse(input$fuel %in% c("E-10 GASOLENE - 87 OCTANE NONE 1 L",
+                                                         "E-10 GASOLENE - 90 OCTANE NONE 1 L",
+                                                         "AUTO DIESEL NONE 1 L"),
+                                       "PET.EER_EPMRU_PF4_RGC_DPG.D",
+                                       "PET.EER_EPD2DXL0_PF4_RGC_DPG.D"),
+                    api_key = "9292085e1004f26d04458213e09c3051",
+                    start = format(as.Date(input$date,format = "%Y-%m-%d"),"%Y%m%d"),
+                    end = format(as.Date(input$date,format = "%Y-%m-%d"),"%Y%m%d")
+                  )) %>%
+        content() %>%
+        unlist() %>%
+        enframe() %>%
+        filter(name == "series.data2")
+      
+      usgcDPG <- as.numeric(usgc$value)
+      
+      usdxrate = get_usd_rate(input$date)
+      
+      infoBox(
+        title = "USGC",
+        subtitle = paste0("(US$",usgcDPG,"/gal)"),
+        value = round(usgcDPG / 3.785 *  usdxrate,2),
+        href = "https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm",
+        icon = icon("usd")
+      )
+    })
+    
+    output$petrojam <- renderInfoBox({
+      
+      petrEXP <- ifelse(input$fuel == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
+                        petrojam_data()$`Gasolene  87`[year(petrojam_data()$Date)==year(input$date) &
+                                                       week(petrojam_data()$Date) == week(input$date)-1],
+                        ifelse(input$fuel == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
+                               petrojam_data()$`Gasolene 90`[year(petrojam_data()$Date)==year(input$date) &
+                                                             week(petrojam_data()$Date) == week(input$date)-1],
+                               ifelse(input$fuel == "AUTO DIESEL NONE 1 L",
+                                      petrojam_data()$`Auto Diesel`[year(petrojam_data()$Date)==year(input$date) &
+                                                                    week(petrojam_data()$Date) == week(input$date)-1],
+                                      petrojam_data()$ULSD[year(petrojam_data()$Date)==year(input$date) &
+                                                           week(petrojam_data()$Date) == week(input$date)-1]
+                               )
+                        )
+      ) 
+      
+      
+      infoBox(
+        title = "Petrojam ex-refinery",
+        value = round(petrEXP, 2),
+        href = "http://www.petrojam.com/price-index",
+        icon = icon("usd")
+      )
+      
+    })
     
   })
   
-  output$USGC <- renderInfoBox({
-    
-    usgcDPG <- ifelse(input$fuel %in% c("E-10 GASOLENE - 87 OCTANE NONE 1 L",
-                                        "E-10 GASOLENE - 90 OCTANE NONE 1 L",
-                                        "AUTO DIESEL NONE 1 L"),
-                      as.numeric(usgcReg$Price[usgcReg$Date == first(input$date)]),
-                      as.numeric(usgcULSD$Price[usgcULSD$Date == first(input$date)]))
-    
-    infoBox(
-      title = "USGC",
-      subtitle = paste0("(US$",usgcDPG,"/gal)"),
-      value = round(usgcDPG / 3.785 *  as.numeric(as.character(XRate_data$`USD Sell`[XRate_data$Date == first(input$date)])),2),
-      href = "https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm",
-      icon = icon("usd")
-    )
-  })
-  
-  output$petrojam <- renderInfoBox({
-    
-    petrEXP <- ifelse(input$fuel == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
-                      petrojam_data$`Gasolene  87`[year(petrojam_data$Date)==year(first(input$date)) &
-                                                     week(petrojam_data$Date) == week(first(input$date))-1],
-                      ifelse(input$fuel == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
-                             petrojam_data$`Gasolene 90`[year(petrojam_data$Date)==year(first(input$date)) &
-                                                           week(petrojam_data$Date) == week(first(input$date))-1],
-                             ifelse(input$fuel == "AUTO DIESEL NONE 1 L",
-                                    petrojam_data$`Auto Diesel`[year(petrojam_data$Date)==year(first(input$date)) &
-                                                                  week(petrojam_data$Date) == week(first(input$date))-1],
-                                    petrojam_data$ULSD[year(petrojam_data$Date)==year(first(input$date)) &
-                                                         week(petrojam_data$Date) == week(first(input$date))-1]
-                             )
-                      )
-    ) 
-    
-    
-    infoBox(
-      title = "Petrojam ex-refinery",
-      value = round(petrEXP, 2),
-      href = "http://www.petrojam.com/price-index",
-      icon = icon("usd")
-    )
-    
-  })
-  
+  ## Chart creation and markup calculation
   observeEvent(input$mapPlot_marker_click, {
     
     clickedMarker<-input$mapPlot_marker_click
@@ -530,48 +575,32 @@ server <- function(input, output, session) {
     # Forecast Analysis
     output$forecast <- renderPlot({
       
-      forecastPetrolData <- petrol_data()%>%
+      forecastPetrolData <- petrol_data() %>%
         filter(price !=0 & 
                  outletid == clickedMarker$id & 
                  itemname == input$fuel)
       
-      price_ts = ts(forecastPetrolData[,c("price")])
+      forecastPetrolData$price %>%
+        ts(frequency = 12) %>%
+        ets() %>%
+        forecast() %>%
+        autoplot()
       
-      forecastPetrolData$clean_price = tsclean(price_ts)
-      
-      forecastPetrolData$clean_price_ma = ma(forecastPetrolData$clean_price,
-                                             order = 4)
-      
-      price_ma = ts(na.omit(forecastPetrolData$clean_price_ma),
-                    frequency = 4)
-      decomp = stl(price_ma, s.window = "periodic")
-      deseasonal_price <- seasadj(decomp)
-      
-      fit <- auto.arima(deseasonal_price, 
-                        seasonal = T,
-                        approximation = F)
-      
-      seas_fcast <- forecast(fit, h=24)
-      
-      autoplot(seas_fcast) + 
-        labs(title = paste(clickedMarker$id, "forecasted ",
-                           input$fuel, " price"),
-             y = "J$/L")
     })
     
     output$markup <- renderInfoBox({
       
       markedup <- ifelse(input$fuel == "E-10 GASOLENE - 87 OCTANE NONE 1 L",
-                         as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$`Gasolene  87`[year(petrojam_data$Date)==year(input$date) &
-                                                                                                                      week(petrojam_data$Date) == week(input$date)-1],
+                         as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data()$`Gasolene  87`[year(petrojam_data()$Date)==year(input$date) &
+                                                                                                                      week(petrojam_data()$Date) == week(input$date)-1],
                          ifelse(input$fuel == "E-10 GASOLENE - 90 OCTANE NONE 1 L",
-                                as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$`Gasolene 90`[year(petrojam_data$Date)==year(input$date) &
-                                                                                                                            week(petrojam_data$Date) == week(input$date)-1],
+                                as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data()$`Gasolene 90`[year(petrojam_data()$Date)==year(input$date) &
+                                                                                                                            week(petrojam_data()$Date) == week(input$date)-1],
                                 ifelse(input$fuel == "AUTO DIESEL NONE 1 L",
-                                       as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$`Auto Diesel`[year(petrojam_data$Date)==year(input$date) &
-                                                                                                                                   week(petrojam_data$Date) == week(input$date)-1],
-                                       as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data$ULSD[year(petrojam_data$Date)==year(input$date) &
-                                                                                                                          week(petrojam_data$Date) == week(input$date)-1]
+                                       as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data()$`Auto Diesel`[year(petrojam_data()$Date)==year(input$date) &
+                                                                                                                                   week(petrojam_data()$Date) == week(input$date)-1],
+                                       as.numeric(map_data()$price[map_data()$outletid == clickedMarker$id]) - petrojam_data()$ULSD[year(petrojam_data()$Date)==year(input$date) &
+                                                                                                                          week(petrojam_data()$Date) == week(input$date)-1]
                                 )
                          )
       ) 
@@ -648,16 +677,43 @@ server <- function(input, output, session) {
     })
     
   })
-  
+
+    ## Map Creation
+  output$groceryMapPlot <- renderLeaflet({
+    
+    # Get outlets for map
+    grocerymapdata <- GET_outlet %>%
+      filter(surveytype == 3)
+    
+    #draw map
+    leaflet(width = 400) %>%
+      setView(lng = -77.29751,
+              lat = 18.10958,
+              zoom = 9) %>%
+      addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
+      addMarkers(lng = as.numeric(grocerymapdata$loclongitude),
+                 lat = as.numeric(grocerymapdata$loclatitude),
+                 layerId = grocerymapdata$outletid,
+                 popup = htmlEscape(paste(grocerymapdata$name,                                  "\n",
+                                          grocerymapdata$town))
+      )
+  })  
+
   ## Create data frame of grocery products, prices and totals based on user selections
   grocery_prices <- eventReactive(input$grocery_items_vol,{
     
-    grocery_prices <- GET("http://cac.gov.jm/api/productprices/read.php", 
-                          query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
-                                       SurveyType = 3,
-                                       StartDate = input$grocdate,
-                                       EndDate =as.character(as.Date(input$grocdate) + 1),
-                                       ItemID = toString(selected_items()))) %>%
+    GroceryUrl <- paste0("http://www.cac.gov.jm/api/productprices/read.php?Key=06c2b56c-0d8e-45e5-997c-59eff33eabc2&SurveyType=3",
+                         "&StartDate=",
+                         input$grocdate,
+                         "&EndDate=",
+                         as.character(as.Date(input$grocdate) + 1),
+                         "&ItemID=",
+                         paste(selected_items(),collapse = ","),
+                         "&Page=1&PageSize=4000")
+    
+    print(GroceryUrl)
+    
+    grocery_prices <- GET(GroceryUrl) %>%
       content() %>%
       unlist() %>%
       enframe() %>%
@@ -723,42 +779,6 @@ server <- function(input, output, session) {
                 scrollX = TRUE,
                 fixedColumns = list(leftColumns = 2))
               )
-  })
-  
-  ## Map Creation
-  output$groceryMapPlot <- renderLeaflet({
-    # set colours for legend
-    pal <- colorBin(
-      palette = c("#00FF00", "#FFFF00", "#FF0000"),
-      domain = as.numeric(grocery_prices()$price),
-      bins = 5,
-      pretty = T
-    )
-    
-    #draw map
-    leaflet(width = 400) %>%
-      setView(lng = -77.29751,
-              lat = 18.10958,
-              zoom = 9) %>%
-      addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
-      addCircleMarkers(lng = as.numeric(grocery_prices()$loclongitude),
-                       lat = as.numeric(grocery_prices()$loclatitude),
-                       layerId = grocery_prices()$outletid,
-                       stroke = T,
-                       fillOpacity = 0.8,
-                       fillColor = pal(as.numeric(grocery_prices()$price)),
-                       popup = htmlEscape(paste("You can get your basket for about $",
-                                                as.character(grocery_prices()$price),
-                                                " from ",
-                                                grocery_prices()$merchantname,
-                                                grocery_prices()$merchanttown,
-                                                ", on ",
-                                                grocery_prices()$startdate))
-      ) %>%
-      addLegend("bottomleft",
-                pal = pal,
-                values = as.numeric(grocery_prices()$price),
-                title = "Total Estimated Cost (Tax incl.) (Ja$)")
   })
   
   ## Zoom in on user location if given
