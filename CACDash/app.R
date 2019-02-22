@@ -678,12 +678,15 @@ server <- function(input, output, session) {
     
   })
 
-    ## Map Creation
+  ## Map Creation
   output$groceryMapPlot <- renderLeaflet({
     
-    # Get outlets for map
-    grocerymapdata <- GET_outlet %>%
-      filter(surveytype == 3)
+    pal <- colorBin(
+      palette = c("#00FF00", "#FFFF00", "#FF0000"),
+      domain = as.numeric(grocery_prices()$grandTot),
+      bins = 5,
+      pretty = F
+    )
     
     #draw map
     leaflet(width = 400) %>%
@@ -691,12 +694,25 @@ server <- function(input, output, session) {
               lat = 18.10958,
               zoom = 9) %>%
       addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
-      addMarkers(lng = as.numeric(grocerymapdata$loclongitude),
-                 lat = as.numeric(grocerymapdata$loclatitude),
-                 layerId = grocerymapdata$outletid,
-                 popup = htmlEscape(paste(grocerymapdata$name,                                  "\n",
-                                          grocerymapdata$town))
-      )
+      addCircleMarkers(lng = as.numeric(grocery_prices()$loclongitude),
+                       lat = as.numeric(grocery_prices()$loclatitude),
+                       layerId = grocery_prices()$outletid,
+                       stroke = T,
+                       fillOpacity = 0.8,
+                       fillColor = pal(as.numeric(grocery_prices()$grandTot)),
+                       popup = htmlEscape(paste("You can get your basket for about $",
+                                                as.character(grocery_prices()$grandTot),
+                                                " from ",
+                                                grocery_prices()$name,
+                                                grocery_prices()$town,
+                                                ", on ",
+                                                grocery_prices()$startdate))
+      ) %>%
+      addLegend("bottomleft",
+                pal = pal,
+                values = as.numeric(grocery_prices()$grandTot),
+                title = "Total Estimated Cost (Tax incl.) (Ja$)") 
+    
   })  
 
   ## Create data frame of grocery products, prices and totals based on user selections
@@ -711,7 +727,6 @@ server <- function(input, output, session) {
                          paste(selected_items(),collapse = ","),
                          "&Page=1&PageSize=4000")
     
-    print(GroceryUrl)
     
     grocery_prices <- GET(GroceryUrl) %>%
       content() %>%
@@ -726,7 +741,23 @@ server <- function(input, output, session) {
       inner_join(GET_outlet, "outletid")  %>%
       filter(price != "0", !is.na(price))
     
-    return(grocery_prices)
+    groceryData <- NULL
+    
+    for (ID in selected_items()) {
+      
+      volume <- as.numeric(input[[paste0(grocery_items$itemname[grocery_items$itemid == ID])]])
+      
+      groceryData <- bind_rows(groceryData, grocery_prices) %>%
+        filter(itemid == ID) %>%
+        group_by(outletid) %>%
+        dplyr::mutate(itemTot = as.numeric(price) * volume) %>%
+        dplyr::mutate(Tot = sum(itemTot, na.rm = T)) %>%
+        dplyr::mutate(grandTot = Tot + (.165 * Tot)) %>%
+        ungroup()
+      
+    }
+    
+    return(groceryData)
 
   })
   
