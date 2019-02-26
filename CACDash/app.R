@@ -334,20 +334,19 @@ server <- function(input, output, session) {
   ## Subset Petrol data based on user selection
   map_data <- eventReactive(input$view_Petrol_Prices,{
     
-    map_data <- GET("http://cac.gov.jm/api/productprices/read.php",
+    GETResults <- GET("http://cac.gov.jm/api/productprices/read.php",
                     query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
                                  SurveyType = 4,
                                  StartDate = input$date,
                                  EndDate = as.character(as.Date(input$date) + 1),
                                  ItemID = GET_petrol_items$itemid[GET_petrol_items$itemname == input$fuel])) %>%
       content() %>%
-      unlist() %>%
-      enframe() %>%
-      separate(name, into = c(paste0("x", 1:2))) %>%
-      group_by_at(vars(-value)) %>%
-      mutate(row_id=1:n()) %>%
-      ungroup() %>%
-      spread(x2, value) %>%
+      toJSON() %>%
+      fromJSON()
+    
+    ResultsDAta <- GETResults$records %>%
+      mutate(price = as.numeric(price)) %>%
+      unnest(itemid, outletid, price) %>%
       select(itemid, outletid, price) %>%
       inner_join(GET_outlet, "outletid") %>%
       mutate(price = as.numeric(price),
@@ -355,13 +354,13 @@ server <- function(input, output, session) {
              loclatitude = as.numeric(loclatitude)) %>%
       filter(price > 0)
     
-    return(map_data)
+    return(ResultsDAta)
     
   })
   
   petrol_data <- eventReactive(input$view_Petrol_Prices,{
     
-    map_data <- GET("http://cac.gov.jm/api/productprices/read.php", 
+    GETResults <- GET("http://cac.gov.jm/api/productprices/read.php", 
                     query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
                                  SurveyType = 4,
                                  ItemID = GET_petrol_items$itemid[GET_petrol_items$itemname == input$fuel],
@@ -370,23 +369,22 @@ server <- function(input, output, session) {
                                  Page = 1,
                                  PageSize = 4000)) %>%
       content() %>%
-      unlist() %>%
-      enframe() %>%
-      separate(name, into = c(paste0("x", 1:2))) %>%
-      group_by_at(vars(-value)) %>%
-      mutate(row_id=1:n()) %>%
-      ungroup() %>%
-      spread(x2, value) %>%
+      toJSON() %>%
+      fromJSON()
+    
+    ResultsData <- GETResults$records %>%
+      mutate(price = as.numeric(price)) %>%
+      unnest(startdate, itemid, itemname, outletid, price) %>%
       select(startdate, itemid, itemname, outletid, price) %>%
       inner_join(GET_outlet, "outletid") %>%
+      filter(price > 0) %>%
       group_by(startdate) %>%
-      mutate(price = as.numeric(price),
-             natlMean = mean(price, na.rm = T),
+      mutate(natlMean = mean(price, na.rm = T),
              natlMin = min(price, na.rm = T),
              natlMax = max(price, na.rm = T)) %>%
-      ungroup() 
+      ungroup()  
     
-    return(map_data)
+    return(ResultsData)
     
   })
   
@@ -718,25 +716,23 @@ server <- function(input, output, session) {
   ## Create data frame of grocery products, prices and totals based on user selections
   grocery_prices <- eventReactive(input$grocery_items_vol,{
     
-    GroceryUrl <- paste0("http://www.cac.gov.jm/api/productprices/read.php?Key=06c2b56c-0d8e-45e5-997c-59eff33eabc2&SurveyType=3",
+    GroceryUrlResults <- paste0("http://www.cac.gov.jm/api/productprices/read.php?Key=06c2b56c-0d8e-45e5-997c-59eff33eabc2&SurveyType=3",
                          "&StartDate=",
                          input$grocdate,
                          "&EndDate=",
                          as.character(as.Date(input$grocdate) + 1),
                          "&ItemID=",
                          paste(selected_items(),collapse = ","),
-                         "&Page=1&PageSize=4000")
-    
-    
-    grocery_prices <- GET(GroceryUrl) %>%
+                         "&Page=1&PageSize=4000") %>%
+      GET() %>%
       content() %>%
-      unlist() %>%
-      enframe() %>%
-      separate(name, into = c(paste0("x", 1:2))) %>%
-      group_by_at(vars(-value)) %>%
-      mutate(row_id=1:n()) %>%
-      ungroup() %>%
-      spread(x2, value) %>%
+      toJSON() %>%
+      fromJSON()
+    
+    
+    grocery_prices <- GroceryUrlResults$records %>%
+      mutate(price = as.numeric(price)) %>%
+      unnest(startdate, itemid, itemname, outletid) %>%
       select(startdate, itemid, itemname, outletid, price) %>%
       inner_join(GET_outlet, "outletid")  %>%
       filter(price != "0", !is.na(price))
@@ -747,13 +743,15 @@ server <- function(input, output, session) {
       
       volume <- as.numeric(input[[paste0(grocery_items$itemname[grocery_items$itemid == ID])]])
       
-      groceryData <- bind_rows(groceryData, grocery_prices) %>%
+      groceryData <-  grocery_prices %>%
         filter(itemid == ID) %>%
         group_by(outletid) %>%
         dplyr::mutate(itemTot = as.numeric(price) * volume) %>%
         dplyr::mutate(Tot = sum(itemTot, na.rm = T)) %>%
         dplyr::mutate(grandTot = Tot + (.165 * Tot)) %>%
-        ungroup()
+        ungroup() %>%
+        filter(grandTot > 0) %>%
+        bind_rows(groceryData)
       
     }
     
@@ -768,7 +766,10 @@ server <- function(input, output, session) {
       group_by(itemid, itemname) %>%
       summarise(maxPrice = max(as.numeric(price), na.rm = T),
                 minPrice = min(as.numeric(price), na.rm = T),
-                meanPrice = mean(as.numeric(price), na.rm = T))
+                meanPrice = mean(as.numeric(price), na.rm = T)) %>%
+      ungroup
+    
+    print(statsData)
     
     lapply(1:length(selected_items()), function(i){
       
@@ -796,7 +797,7 @@ server <- function(input, output, session) {
   output$grocery_store_comp <- renderDataTable({
     
     groceryDatatable <- grocery_prices() %>%
-      select(name, itemname, price) %>%
+      select(name, town, itemname, price) %>%
       group_by_at(vars(-price)) %>%
       mutate(row_id = 1:n()) %>%
       ungroup() %>%
