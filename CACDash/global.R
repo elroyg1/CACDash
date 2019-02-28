@@ -116,6 +116,34 @@ get_usd_rate <- function(selecteddate) {
   
 }
 
+forecastForexRate <- function(currency, selecteddate, rate) {
+  
+  XRate_data <- paste0("http://www.boj.org.jm/foreign_exchange/searchfx.php?i",
+                       currency,
+                       "=1&rate=1&strFromDate=",
+                       as.character(as.Date(selecteddate) %m-% years(5)),
+                       "&strToDate=",
+                       selecteddate,
+                       "&Enter=") %>% 
+    XML::readHTMLTable(as.data.frame=T, which=4) %>%
+    rename("sell" = 3, "buy" = 2, "Date"=1) %>%
+    mutate(Date = as.Date(Date, format = "%Y-%m-%d"),
+           sell = as.numeric(as.character(lead(sell, 1))),
+           buy = as.numeric(as.character(lead(buy, 1)))) %>%
+    na.omit() %>%
+    arrange(Date)
+  
+  XRate_data%>%
+    select(rate) %>%
+    ts() %>%
+    ets() %>%
+    forecast() %>%
+    autoplot()
+  
+  plotly::ggplotly()
+  
+}
+
 # Get grocery products
 GET_grocery_dates <- GET("http://cac.gov.jm/api/surveys/read.php", 
                          query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",

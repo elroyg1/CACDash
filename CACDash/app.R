@@ -298,13 +298,18 @@ ui <- dashboardPage(
               leafletOutput("forexMapPlot")))
         ),
         fluidRow(
-          column(
-            width = 12,
-            box(
-              width = NULL,
-              infoBoxOutput("forex_output")
-            )
+          
+          tabBox(
+            width = NULL,
+            title = "Forex Analysis",
+            tabPanel("Stats",
+                     infoBoxOutput("forex_output")),
+            tabPanel("Trend",
+                     plotlyOutput("forexTrend")),
+            tabPanel("Forecast",
+                     plotlyOutput("forexForecast"))
           )
+          
         )
       )
       )
@@ -759,6 +764,36 @@ server <- function(input, output, session) {
 
   })
   
+  grocery_pricesHist <- eventReactive(input$grocery_items_vol,{
+    
+    GroceryUrlResults <- paste0("http://www.cac.gov.jm/api/productprices/read.php?Key=06c2b56c-0d8e-45e5-997c-59eff33eabc2&SurveyType=3",
+                                "&StartDate=",
+                                as.character(as.Date(input$date) %m-% years(10)),
+                                "&EndDate=",
+                                as.character(as.Date(input$grocdate) + 1),
+                                "&ItemID=",
+                                paste(selected_items(),collapse = ","),
+                                "&Page=1&PageSize=4000") %>%
+      GET() %>%
+      content() %>%
+      toJSON() %>%
+      fromJSON()
+    
+    
+    ResultsData <- GroceryUrlResults$records %>%
+      mutate(price = as.numeric(price)) %>%
+      unnest(startdate, itemid, itemname, outletid, price) %>%
+      select(startdate, itemid, itemname, outletid, price) %>%
+      filter(price > 0) %>%
+      group_by(startdate, itemname) %>%
+      summarise(natlMean = mean(price, na.rm = T)) %>%
+      ungroup() %>%
+      mutate(startdate = as.Date(startdate, format = "%Y-%m-%d")) 
+    
+    return(ResultsData)
+    
+  })
+  
   ## List stats for selected items
   output$groceryStats <-  renderUI({
     
@@ -813,6 +848,20 @@ server <- function(input, output, session) {
               )
   })
   
+  ## Chart of national average prices over time
+  output$groceryChart <- renderPlotly({
+    
+    grocery_pricesHist() %>%
+      ggplot(aes(x = startdate, y = natlMean, group = itemname)) +
+      geom_line()  +
+      scale_x_date() +
+      facet_wrap(~itemname,scales = "free")
+    
+    ggplotly()
+  
+    
+  })
+  
   ## Zoom in on user location if given
   observe({
     if(!is.null(input$lat)){
@@ -850,6 +899,14 @@ server <- function(input, output, session) {
         subtitle = paste0(input$forex_txn, " volume ",forex_data[2,2]) 
       )
     )
+    
+    output$forexForecast <- renderPlotly({
+      
+      forecastForexRate(currency = input$forex_currencies,
+                        selecteddate = today()-1,
+                        rate = input$forex_txn)
+      
+    })
     
   })
 }
