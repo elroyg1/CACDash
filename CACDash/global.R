@@ -131,16 +131,8 @@ forecastForexRate <- function(currency, selecteddate, rate) {
            sell = as.numeric(as.character(lead(sell, 1))),
            buy = as.numeric(as.character(lead(buy, 1)))) %>%
     na.omit() %>%
-    arrange(Date)
-  
-  XRate_data%>%
-    select(rate) %>%
-    ts() %>%
-    ets() %>%
-    forecast() %>%
-    autoplot()
-  
-  plotly::ggplotly()
+    arrange(Date) %>%
+    select(Date, rate)
   
 }
 

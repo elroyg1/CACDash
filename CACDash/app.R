@@ -900,11 +900,35 @@ server <- function(input, output, session) {
       )
     )
     
+    output$forexTrend <- renderPlotly({
+      
+      XRate_data <- forecastForexRate(currency = input$forex_currencies,
+                                      selecteddate = today()-1,
+                                      rate = input$forex_txn)
+      
+      XRate_data %>%
+        select(Date , 2) %>%
+        ggplot(aes(x = Date, y = XRate_data[,2], group = 1))+
+        geom_line()
+      
+      plotly::ggplotly()
+      
+    })
+    
     output$forexForecast <- renderPlotly({
       
-      forecastForexRate(currency = input$forex_currencies,
+      XRate_data <- forecastForexRate(currency = input$forex_currencies,
                         selecteddate = today()-1,
                         rate = input$forex_txn)
+      
+      XRate_data%>%
+        select(2) %>%
+        ts() %>%
+        ets() %>%
+        forecast() %>%
+        autoplot()
+      
+      plotly::ggplotly()
       
     })
     
