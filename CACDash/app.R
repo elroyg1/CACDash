@@ -216,7 +216,7 @@ ui <- dashboardPage(
               pickerInput("grocery_products",
                           "Choose a product",
                           grocery_items$itemname,
-                          options = list(size = 10,
+                          options = list(size = 5,
                                          "live-search" = TRUE,
                                          "actions-box" = TRUE,
                                          `selected-text-format` = "count > 3"),
@@ -278,8 +278,11 @@ ui <- dashboardPage(
               pickerInput("forex_inst",
                           "Choose an institution",
                           bank_institutions,
-                          options = list("live-search" = TRUE
-              )),
+                          options = list(size = 5,
+                                         "live-search" = TRUE,
+                                         "actions-box" = TRUE,
+                                         `selected-text-format` = "count > 3"),
+                          multiple = T),
               radioGroupButtons("forex_currencies",
                                 "Choose your currency",
                                 choices = currencies),
@@ -303,7 +306,7 @@ ui <- dashboardPage(
             width = NULL,
             title = "Forex Analysis",
             tabPanel("Stats",
-                     infoBoxOutput("forex_output")),
+                     uiOutput("forex_output")),
             tabPanel("Trend",
                      plotlyOutput("forexTrend")),
             tabPanel("Forecast",
@@ -804,8 +807,6 @@ server <- function(input, output, session) {
                 meanPrice = mean(as.numeric(price), na.rm = T)) %>%
       ungroup
     
-    print(statsData)
-    
     lapply(1:length(selected_items()), function(i){
       
       if (length(selected_items()) != 0){
@@ -885,52 +886,82 @@ server <- function(input, output, session) {
   )
 
   # Forex Section
-  observeEvent(input$forex_show,{
+  
+  ## Pull from BOJ API
+  forexData <- eventReactive(input$forex_show,{
     
-    forex_data <- bojData %>%
-      dplyr::filter(str_detect(rowname, input$forex_inst) &
-                      str_detect(rowname, input$forex_currencies) &
-                      str_detect(rowname, input$forex_txn))
+    bojData <- "http://boj.org.jm/autobot/market_summary/read.php" %>%
+      GET() %>%
+      content() %>%
+      toJSON() %>%
+      fromJSON()
+    
+    return(bojData)
+    
+  })
+  
+  ## List selected items for user to indicate volumes
+  output$forex_output <- renderUI({
+    
+    lapply(1:length(input$forex_inst), function(i){
+      
+      selectedData <- forexData()[[1]][[input$forex_inst[i]]] %>%
+          unlist() %>%
+          enframe() %>%
+          separate(name, c("currency", "txn")) %>%
+          dplyr::filter(currency == input$forex_currencies &
+                          str_detect(txn, input$forex_txn))
+      
+      if (length(input$forex_inst) != 0){
+        
+        box(
+          infoBox(
+            title = "Rate",
+            value = selectedData[1,3],
+            subtitle = paste0(input$forex_txn, " volume ",selectedData[2,3]) 
+          ),
+          title = input$forex_inst[i],
+          width = 4  
+        )
+        
+      }
+      else{
+        renderText({"Please choose some institutions"})
+      }
+      
+    })
+    
+  })
 
-    output$forex_output <- renderInfoBox(
-      infoBox(
-        title = "Rate",
-        value = forex_data[1,2],
-        subtitle = paste0(input$forex_txn, " volume ",forex_data[2,2]) 
-      )
-    )
+  output$forexTrend <- renderPlotly({
     
-    output$forexTrend <- renderPlotly({
-      
-      XRate_data <- forecastForexRate(currency = input$forex_currencies,
-                                      selecteddate = today()-1,
-                                      rate = input$forex_txn)
-      
-      XRate_data %>%
-        select(Date , 2) %>%
-        ggplot(aes(x = Date, y = XRate_data[,2], group = 1))+
-        geom_line()
-      
-      plotly::ggplotly()
-      
-    })
+    XRate_data <- forecastForexRate(currency = input$forex_currencies,
+                                    selecteddate = today()-1,
+                                    rate = input$forex_txn)
     
-    output$forexForecast <- renderPlotly({
-      
-      XRate_data <- forecastForexRate(currency = input$forex_currencies,
-                        selecteddate = today()-1,
-                        rate = input$forex_txn)
-      
-      XRate_data%>%
-        select(2) %>%
-        ts() %>%
-        ets() %>%
-        forecast() %>%
-        autoplot()
-      
-      plotly::ggplotly()
-      
-    })
+    XRate_data %>%
+      select(Date , 2) %>%
+      ggplot(aes(x = Date, y = XRate_data[,2], group = 1))+
+      geom_line()
+    
+    plotly::ggplotly()
+    
+  })
+  
+  output$forexForecast <- renderPlotly({
+    
+    XRate_data <- forecastForexRate(currency = input$forex_currencies,
+                                    selecteddate = today()-1,
+                                    rate = input$forex_txn)
+    
+    XRate_data%>%
+      select(2) %>%
+      ts() %>%
+      ets() %>%
+      forecast() %>%
+      autoplot()
+    
+    plotly::ggplotly()
     
   })
 }

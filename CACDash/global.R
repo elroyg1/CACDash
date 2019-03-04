@@ -172,11 +172,3 @@ bank_institutions <- read.csv("./data/institutions.csv",
   unlist()
 
 currencies <- c("USD", "GBP", "EUR", "CAD")
-
-bojData <- "http://boj.org.jm/autobot/market_summary/read.php" %>%
-  GET() %>%
-  content() %>%
-  unlist() %>%
-  as.data.frame() %>%
-  na.omit() %>%
-  rownames_to_column()
