@@ -683,55 +683,18 @@ server <- function(input, output, session) {
     })
     
   })
-
-  ## Map Creation
-  output$groceryMapPlot <- renderLeaflet({
-    
-    pal <- colorBin(
-      palette = c("#00FF00", "#FFFF00", "#FF0000"),
-      domain = as.numeric(grocery_prices()$grandTot),
-      bins = 5,
-      pretty = F
-    )
-    
-    #draw map
-    leaflet(width = 400) %>%
-      setView(lng = -77.29751,
-              lat = 18.10958,
-              zoom = 9) %>%
-      addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
-      addCircleMarkers(lng = as.numeric(grocery_prices()$loclongitude),
-                       lat = as.numeric(grocery_prices()$loclatitude),
-                       layerId = grocery_prices()$outletid,
-                       stroke = T,
-                       fillOpacity = 0.8,
-                       fillColor = pal(as.numeric(grocery_prices()$grandTot)),
-                       popup = htmlEscape(paste("You can get your basket for about $",
-                                                as.character(grocery_prices()$grandTot),
-                                                " from ",
-                                                grocery_prices()$name,
-                                                grocery_prices()$town,
-                                                ", on ",
-                                                grocery_prices()$startdate))
-      ) %>%
-      addLegend("bottomleft",
-                pal = pal,
-                values = as.numeric(grocery_prices()$grandTot),
-                title = "Total Estimated Cost (Tax incl.) (Ja$)") 
-    
-  })  
-
+  
   ## Create data frame of grocery products, prices and totals based on user selections
   grocery_prices <- eventReactive(input$grocery_items_vol,{
     
     GroceryUrlResults <- paste0("http://www.cac.gov.jm/api/productprices/read.php?Key=06c2b56c-0d8e-45e5-997c-59eff33eabc2&SurveyType=3",
-                         "&StartDate=",
-                         input$grocdate,
-                         "&EndDate=",
-                         as.character(as.Date(input$grocdate) + 1),
-                         "&ItemID=",
-                         paste(selected_items(),collapse = ","),
-                         "&Page=1&PageSize=4000") %>%
+                                "&StartDate=",
+                                input$grocdate,
+                                "&EndDate=",
+                                as.character(as.Date(input$grocdate) + 1),
+                                "&ItemID=",
+                                paste(selected_items(),collapse = ","),
+                                "&Page=1&PageSize=4000") %>%
       GET() %>%
       content() %>%
       toJSON() %>%
@@ -755,16 +718,22 @@ server <- function(input, output, session) {
         filter(itemid == ID) %>%
         group_by(outletid) %>%
         dplyr::mutate(itemTot = as.numeric(price) * volume) %>%
-        dplyr::mutate(Tot = sum(itemTot, na.rm = T)) %>%
-        dplyr::mutate(grandTot = Tot + (.165 * Tot)) %>%
         ungroup() %>%
-        filter(grandTot > 0) %>%
         bind_rows(groceryData)
       
     }
     
-    return(groceryData)
-
+    groceryDataGrandTotal <- groceryData %>%
+      group_by(outletid) %>%
+      dplyr::mutate(Tot = sum(itemTot, na.rm = T)) %>%
+      dplyr::mutate(grandTot = round(Tot + (.165 * Tot), 2)) %>%
+      dplyr::mutate(items = paste(unique(itemname), collapse = ", ")) %>%
+      ungroup() %>%
+      filter(grandTot > 0)
+      
+    
+    return(groceryDataGrandTotal)
+    
   })
   
   grocery_pricesHist <- eventReactive(input$grocery_items_vol,{
@@ -796,6 +765,50 @@ server <- function(input, output, session) {
     return(ResultsData)
     
   })
+
+  ## Map Creation
+  output$groceryMapPlot <- renderLeaflet({
+    
+    print(dim(grocery_prices()))
+    print(unique(unlist(grocery_prices()$itemname)))
+    
+    pal <- colorBin(
+      palette = c("#00FF00", "#FFFF00", "#FF0000"),
+      domain = as.numeric(grocery_prices()$grandTot),
+      bins = 5,
+      pretty = F
+    )
+    
+    #draw map
+    leaflet(width = 400) %>%
+      setView(lng = -77.29751,
+              lat = 18.10958,
+              zoom = 9) %>%
+      addProviderTiles(providers$OpenStreetMap.Mapnik) %>%
+      addCircleMarkers(lng = as.numeric(grocery_prices()$loclongitude),
+                       lat = as.numeric(grocery_prices()$loclatitude),
+                       layerId = grocery_prices()$outletid,
+                       stroke = T,
+                       fillOpacity = 0.8,
+                       fillColor = pal(as.numeric(grocery_prices()$grandTot)),
+                       popup = htmlEscape(paste("Outlet: ",
+                                                grocery_prices()$name,
+                                                grocery_prices()$town,
+                                                "Date: ",
+                                                grocery_prices()$startdate,
+                                                "Products: ",
+                                                grocery_prices()$items,
+                                                "Total: ",
+                                                as.character(grocery_prices()$grandTot)
+                                                ))
+      ) %>%
+      addLegend("bottomleft",
+                pal = pal,
+                values = as.numeric(grocery_prices()$grandTot),
+                title = "Total Estimated Cost (Tax incl.) (Ja$)") 
+    
+  })  
+
   
   ## List stats for selected items
   output$groceryStats <-  renderUI({
