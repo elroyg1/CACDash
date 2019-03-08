@@ -23,38 +23,23 @@ library(plotly)
 
 library(readr)
 
-# Get Petrol data
-petrol_dates <- GET("http://cac.gov.jm/api/surveys/read.php", 
-                    query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
-                                 SurveyType = 4)) %>%
-  content() %>%
-  unlist() %>%
-  enframe() %>%
-  separate(name, into = c(paste0("x", 1:2))) %>%
-  group_by_at(vars(-value)) %>%
-  mutate(row_id=1:n()) %>%
-  ungroup() %>%
-  spread(x2, value) %>%
-  select(startdate, enddate) %>%
-  arrange(desc(startdate)) 
 
-GET_petrol_items <- GET("http://cac.gov.jm/api/productitems/read.php", 
-                        query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
-                                     SurveyType = 4)
-) %>%
+# Get data
+Dates <- GET("http://cac.gov.jm/api/surveys/read.php", 
+             query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2")) %>%
   content() %>%
-  unlist() %>%
-  enframe() %>%
-  separate(name, into = c(paste0("x", 1:2))) %>%
-  group_by_at(vars(-value)) %>%
-  mutate(row_id=1:n()) %>%
-  ungroup() %>%
-  spread(x2, value) %>%
-  select(itemid, itemname)
+  toJSON() %>%
+  fromJSON()
+
+GetItems <- GET("http://cac.gov.jm/api/productitems/read.php", 
+                query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2")) %>%
+  content() %>%
+  toJSON() %>%
+  fromJSON()
 
 GET_outlet <- GET("http://cac.gov.jm/api/outlets/read.php",
-                         query = list(Key = "06c2b56c-0d8e-45e5-997c-59eff33eabc2",
-                                      Status = "Active")) %>%
+                  query = list(Key = "06c2b56c-0d8e-45e5-997c-59eff33eabc2",
+                               Status = "Active")) %>%
   content() %>%
   unlist() %>%
   enframe() %>%
@@ -66,6 +51,31 @@ GET_outlet <- GET("http://cac.gov.jm/api/outlets/read.php",
   filter(status == "Active") %>%
   select(surveytype, outletid, name, town, parish, 
          loclatitude, loclongitude)
+
+## Parse Petrol Data
+
+petrol_dates <- Dates$records %>%  
+  filter(surveytype == 4) %>%
+  unnest(startdate, enddate) %>%  
+  select(startdate, enddate)
+
+GET_petrol_items <- GetItems$records %>%
+  filter(surveytype == 4) %>%
+  unnest(itemid, itemname) %>%
+  select(itemid, itemname)
+
+## Parse Grocery Data
+
+GET_grocery_dates <- Dates$records %>%  
+  filter(surveytype == 3) %>%
+  unnest(startdate, enddate) %>%  
+  select(startdate, enddate)
+
+grocery_items <- GetItems$records %>%
+  filter(surveytype == 3) %>%
+  unnest(itemid, itemname) %>%
+  select(itemid, itemname)
+
 
 # Get Petrojam Data
 get_petrojam_data <- function(selecteddate) {
@@ -135,35 +145,6 @@ forecastForexRate <- function(currency, selecteddate, rate) {
     select(Date, rate)
   
 }
-
-# Get grocery products
-GET_grocery_dates <- GET("http://cac.gov.jm/api/surveys/read.php", 
-                         query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
-                                      SurveyType = 3)) %>%
-  content() %>%
-  unlist() %>%
-  enframe() %>%
-  separate(name, into = c(paste0("x", 1:2))) %>%
-  group_by_at(vars(-value)) %>%
-  mutate(row_id=1:n()) %>%
-  ungroup() %>%
-  spread(x2, value) %>%
-  select(startdate) %>%
-  arrange(desc(startdate))
-
-grocery_items <- GET("http://cac.gov.jm/api/productitems/read.php", 
-                     query = list(Key="06c2b56c-0d8e-45e5-997c-59eff33eabc2",
-                                  SurveyType = 3)
-) %>%
-  content() %>%
-  unlist() %>%
-  enframe() %>%
-  separate(name, into = c(paste0("x", 1:2))) %>%
-  group_by_at(vars(-value)) %>%
-  mutate(row_id=1:n()) %>%
-  ungroup() %>%
-  spread(x2, value) %>%
-  select(-c(row_id, x1)) 
 
 # Get BOJ Data
 bank_institutions <- read.csv("./data/institutions.csv", 

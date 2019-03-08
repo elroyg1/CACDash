@@ -149,7 +149,7 @@ ui <- dashboardPage(
                      plotOutput("forecast"))
           ),
           data.step = 7,
-          data.intro = "Click the Past Tab to see the where price is coming from, the Present Tab to see where price is and the Future Tab to see where price (possibly) is going.")
+          data.intro = "Click the Past Tab to see where the station price is coming from, the Present Tab to see where the station price is and the Future Tab to see where the station price (possibly) is going.")
         ),
         column(
           width = 3,
@@ -191,12 +191,12 @@ ui <- dashboardPage(
                                    "markup"),
                      bsTooltip(
                        "markup",
-                       "Displays the difference between the ex-refinery price at which the station purchased the petrol and the price at which they sold the consumer.",
+                       "Displays the difference between the Petrojam ex-refinery price and the station price.",
                        placement = "top",
                        trigger = "hover"
                      ),
                      data.step = 11,
-                     data.intro = "And here's the Mark-up: the difference between what the station bought the product for and what they sold it for.") 
+                     data.intro = "And here's the estimated Mark-up: the difference between the Petrojam ex-refinery price and the station price.") 
           )
         )
       )
@@ -769,15 +769,22 @@ server <- function(input, output, session) {
   ## Map Creation
   output$groceryMapPlot <- renderLeaflet({
     
-    print(dim(grocery_prices()))
-    print(unique(unlist(grocery_prices()$itemname)))
-    
     pal <- colorBin(
       palette = c("#00FF00", "#FFFF00", "#FF0000"),
       domain = as.numeric(grocery_prices()$grandTot),
       bins = 5,
       pretty = F
     )
+    
+    groceryMarkerLabels <- sprintf(
+      "<strong>Outlet: </strong>%s<br/>
+<strong>Date: </strong>%s<br/>
+<strong>Products: </strong>%s<br/>
+      <strong>Total: $</strong>%s",
+      
+      grocery_prices()$name, grocery_prices()$startdate,
+      grocery_prices()$items, as.character(grocery_prices()$grandTot)
+    ) %>% lapply(htmltools::HTML)
     
     #draw map
     leaflet(width = 400) %>%
@@ -791,16 +798,7 @@ server <- function(input, output, session) {
                        stroke = T,
                        fillOpacity = 0.8,
                        fillColor = pal(as.numeric(grocery_prices()$grandTot)),
-                       popup = htmlEscape(paste("Outlet: ",
-                                                grocery_prices()$name,
-                                                grocery_prices()$town,
-                                                "Date: ",
-                                                grocery_prices()$startdate,
-                                                "Products: ",
-                                                grocery_prices()$items,
-                                                "Total: ",
-                                                as.character(grocery_prices()$grandTot)
-                                                ))
+                       popup = groceryMarkerLabels
       ) %>%
       addLegend("bottomleft",
                 pal = pal,
